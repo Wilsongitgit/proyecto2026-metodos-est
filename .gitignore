@@ -1,0 +1,4 @@
+datos/*.csv
+informe_files/
+.quarto/
+__pycache__/
