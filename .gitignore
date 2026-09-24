@@ -2,3 +2,6 @@ datos/*.csv
 informe_files/
 .quarto/
 __pycache__/
+.venv/
+informe.html
+informe.quarto_ipynb*
