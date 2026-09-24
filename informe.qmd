@@ -109,8 +109,8 @@ def _ruta(patrones, url, nombre):
         pd.read_csv(url, dtype=str).to_csv(destino, index=False)
     return destino
 
-RUTA_HIST = _ruta(["*EVA_2*.csv", "*Municipales_EVA*.csv"], URL_HIST, "eva_2006_2018.csv")
-RUTA_REC  = _ruta(["*2019*2025*.csv", "*Base_Agr*.csv"],    URL_REC,  "eva_2019_2025.csv")
+RUTA_HIST = _ruta(["*eva_2006_2018.csv", "*EVA_2*.csv", "*Municipales_EVA*.csv"], URL_HIST, "eva_2006_2018.csv")
+RUTA_REC  = _ruta(["*eva_2019_2025.csv", "*2019*2025*.csv", "*Base_Agr*.csv"],    URL_REC,  "eva_2019_2025.csv")
 
 REGION = {
  "ATLANTICO":"Caribe","BOLIVAR":"Caribe","CESAR":"Caribe","CORDOBA":"Caribe","LA GUAJIRA":"Caribe",
@@ -143,22 +143,34 @@ def _num(s):
 COLS = ["cod_mun","municipio","departamento","grupo","subgrupo","cultivo",
         "anio","periodo","sembrada","cosechada","produccion","rendimiento","ciclo"]
 
+def _norm_col(s):
+    return re.sub(r"\s+", " ", s.replace("\n", " ")).strip()
+
+def _rename_flexible(df, mapping):
+    norm_cols = {_norm_col(c): c for c in df.columns}
+    rename_map = {}
+    for old, new in mapping.items():
+        norm_old = _norm_col(old)
+        if norm_old in norm_cols:
+            rename_map[norm_cols[norm_old]] = new
+    return df.rename(columns=rename_map)
+
 def cargar():
     hist = pd.read_csv(RUTA_HIST, dtype=str)
-    hist.columns = [re.sub(r"\s+", " ", c.replace("\n", " ")).strip() for c in hist.columns]
-    hist = hist.rename(columns={
+    hist = _rename_flexible(hist, {
         "CÓD. MUN.":"cod_mun","MUNICIPIO":"municipio","DEPARTAMENTO":"departamento",
         "GRUPO DE CULTIVO":"grupo","SUBGRUPO DE CULTIVO":"subgrupo","CULTIVO":"cultivo",
         "AÑO":"anio","PERIODO":"periodo","Área Sembrada (ha)":"sembrada",
         "Área Cosechada (ha)":"cosechada","Producción (t)":"produccion",
         "Rendimiento (t/ha)":"rendimiento","CICLO DE CULTIVO":"ciclo"})
+
     rec = pd.read_csv(RUTA_REC, dtype=str)
-    rec.columns = [re.sub(r"\s+", " ", c.replace("\n", " ")).strip() for c in rec.columns]
-    rec = rec.rename(columns={
+    rec = _rename_flexible(rec, {
         "Código Dane municipio":"cod_mun","Municipio":"municipio","Departamento":"departamento",
         "Grupo cultivo":"grupo","Subgrupo":"subgrupo","Cultivo":"cultivo","Año":"anio",
         "Periodo":"periodo","Área sembrada":"sembrada","Área cosechada":"cosechada",
         "Producción":"produccion","Rendimiento":"rendimiento","Ciclo del cultivo":"ciclo"})
+
     hist, rec = hist[COLS].copy(), rec[COLS].copy()
     for d in (hist, rec):
         for c in ["sembrada","cosechada","produccion","rendimiento"]:
