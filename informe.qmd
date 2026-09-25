@@ -1,0 +1,1798 @@
+---
+title: "Rendimiento agrícola municipal 2018–2024"
+author: "Miller Granda · Wilson Zuñiga"
+date: today
+date-format: "D [de] MMMM [de] YYYY"
+lang: es
+format:
+  dashboard:
+    css: styles.css
+    logo: images/logo_universidad.png
+    orientation: rows
+    scrolling: true
+    embed-resources: true
+    html-math-method: mathml
+    code-fold: true
+    code-summary: "Ver código"
+    theme: cosmo
+    nav-buttons:
+      - icon: database
+        href: https://www.datos.gov.co/Agricultura-y-Desarrollo-Rural/Evaluaciones-Agropecuarias-Municipales-EVA-2019-20/uejq-wxrr
+        aria-label: Fuente de datos
+engine: jupyter
+execute:
+  echo: true
+  warning: false
+  error: false
+jupyter: python3
+---
+
+
+```{python}
+#| label: setup
+#| echo: false
+
+import os, re, glob, unicodedata, warnings
+import numpy as np
+import pandas as pd
+import matplotlib
+import matplotlib.pyplot as plt
+from scipy import stats
+import statsmodels.api as sm
+import statsmodels.stats.api as sms
+from statsmodels.stats.proportion import proportions_ztest, proportion_confint
+
+warnings.filterwarnings("ignore")
+pd.set_option("display.max_columns", 40)
+pd.set_option("display.width", 160)
+
+def _f(v):
+    """Formato de celdas numéricas: coma decimal, punto de miles, notación
+    científica para magnitudes muy grandes o muy pequeñas."""
+    if v is None or (isinstance(v, float) and np.isnan(v)):
+        return "—"
+    a = abs(v)
+    if a != 0 and (a >= 1e6 or a < 1e-3):
+        return f"{v:.3e}"
+    dec = 1 if a >= 1000 else 4
+    return f"{v:,.{dec}f}".replace(",", "@").replace(".", ",").replace("@", ".")
+
+pd.set_option("display.float_format", _f)
+
+SEMILLA = 2026
+ALFA = 0.05
+ANIO_INI, ANIO_FIN = 2018, 2024
+
+plt.rcParams.update({
+    "figure.dpi": 110, "savefig.dpi": 110, "font.size": 9,
+    "axes.titlesize": 10, "axes.grid": True, "grid.alpha": 0.25,
+    "axes.spines.top": False, "axes.spines.right": False,
+})
+C1, C2, C3 = "#2E6F9E", "#E08A4A", "#6BA368"
+
+def fmt(x, d=4):
+    """Formato de números para el texto del informe."""
+    if isinstance(x, (int, np.integer)):
+        return f"{x:,}".replace(",", ".")
+    if abs(x) < 1e-4 and x != 0:
+        return f"{x:.2e}"
+    return f"{x:,.{d}f}".replace(",", "@").replace(".", ",").replace("@", ".")
+
+def p_txt(p):
+    """Devuelve el valor-p con su operador: '= 0,0431' o '< 0,0001'."""
+    return "&lt; 0,0001" if p < 1e-4 else "= " + fmt(p, 4)
+
+def decision(p, alfa=ALFA):
+    return "se rechaza H₀" if p < alfa else "no se rechaza H₀"
+
+MESES_ES = ["enero","febrero","marzo","abril","mayo","junio",
+            "julio","agosto","septiembre","octubre","noviembre","diciembre"]
+_hoy = pd.Timestamp.today()
+FECHA_ES = f"{_hoy.day} de {MESES_ES[_hoy.month-1]} de {_hoy.year}"
+
+R = {}   # resultados que se citan en el texto
+```
+
+```{python}
+#| label: carga
+#| echo: false
+
+URL_HIST = "https://www.datos.gov.co/api/views/2pnw-mmge/rows.csv?accessType=DOWNLOAD"
+URL_REC  = "https://www.datos.gov.co/api/views/uejq-wxrr/rows.csv?accessType=DOWNLOAD"
+
+def _ruta(patrones, url, nombre):
+    """Busca el CSV en ./datos; si no está, lo descarga una sola vez."""
+    for pat in patrones:
+        hits = glob.glob(os.path.join("datos", pat))
+        if hits:
+            return sorted(hits)[-1]
+    destino = os.path.join("datos", nombre)
+    if not os.path.exists(destino):
+        os.makedirs("datos", exist_ok=True)
+        pd.read_csv(url, dtype=str).to_csv(destino, index=False)
+    return destino
+
+RUTA_HIST = _ruta(["*eva_2006_2018.csv", "*EVA_2*.csv", "*Municipales_EVA*.csv"], URL_HIST, "eva_2006_2018.csv")
+RUTA_REC  = _ruta(["*eva_2019_2025.csv", "*2019*2025*.csv", "*Base_Agr*.csv"],    URL_REC,  "eva_2019_2025.csv")
+
+REGION = {
+ "ATLANTICO":"Caribe","BOLIVAR":"Caribe","CESAR":"Caribe","CORDOBA":"Caribe","LA GUAJIRA":"Caribe",
+ "MAGDALENA":"Caribe","SUCRE":"Caribe","SAN ANDRES Y PROVIDENCIA":"Caribe",
+ "ARCHIPIELAGO DE SAN ANDRES, PROVIDENCIA Y SANTA CATALINA":"Caribe",
+ "ANTIOQUIA":"Andina","BOYACA":"Andina","CALDAS":"Andina","CUNDINAMARCA":"Andina","HUILA":"Andina",
+ "NORTE DE SANTANDER":"Andina","QUINDIO":"Andina","RISARALDA":"Andina","SANTANDER":"Andina","TOLIMA":"Andina",
+ "CAUCA":"Pacifica","CHOCO":"Pacifica","NARINO":"Pacifica","VALLE DEL CAUCA":"Pacifica",
+ "ARAUCA":"Orinoquia","CASANARE":"Orinoquia","META":"Orinoquia","VICHADA":"Orinoquia",
+ "AMAZONAS":"Amazonia","CAQUETA":"Amazonia","GUAINIA":"Amazonia","GUAVIARE":"Amazonia",
+ "PUTUMAYO":"Amazonia","VAUPES":"Amazonia"}
+
+def _txt(s):
+    """Normaliza texto: sin tildes, sin dobles espacios, en mayúsculas."""
+    if pd.isna(s):
+        return np.nan
+    s = unicodedata.normalize("NFKD", str(s)).encode("ascii", "ignore").decode()
+    return re.sub(r"\s+", " ", s).strip().upper()
+
+def _num(s):
+    """Convierte '1.440' -> 1440.0 y '17,33' -> 17.33 (formato colombiano)."""
+    if pd.isna(s):
+        return np.nan
+    s = str(s).strip().replace(".", "").replace(",", ".")
+    try:
+        return float(s)
+    except ValueError:
+        return np.nan
+
+COLS = ["cod_mun","municipio","departamento","grupo","subgrupo","cultivo",
+        "anio","periodo","sembrada","cosechada","produccion","rendimiento","ciclo"]
+
+def _norm_col(s):
+    return re.sub(r"\s+", " ", s.replace("\n", " ")).strip()
+
+def _rename_flexible(df, mapping):
+    norm_cols = {_norm_col(c): c for c in df.columns}
+    rename_map = {}
+    for old, new in mapping.items():
+        norm_old = _norm_col(old)
+        if norm_old in norm_cols:
+            rename_map[norm_cols[norm_old]] = new
+    return df.rename(columns=rename_map)
+
+def cargar():
+    hist = pd.read_csv(RUTA_HIST, dtype=str)
+    hist = _rename_flexible(hist, {
+        "CÓD. MUN.":"cod_mun","MUNICIPIO":"municipio","DEPARTAMENTO":"departamento",
+        "GRUPO DE CULTIVO":"grupo","SUBGRUPO DE CULTIVO":"subgrupo","CULTIVO":"cultivo",
+        "AÑO":"anio","PERIODO":"periodo","Área Sembrada (ha)":"sembrada",
+        "Área Cosechada (ha)":"cosechada","Producción (t)":"produccion",
+        "Rendimiento (t/ha)":"rendimiento","CICLO DE CULTIVO":"ciclo"})
+
+    rec = pd.read_csv(RUTA_REC, dtype=str)
+    rec = _rename_flexible(rec, {
+        "Código Dane municipio":"cod_mun","Municipio":"municipio","Departamento":"departamento",
+        "Grupo cultivo":"grupo","Subgrupo":"subgrupo","Cultivo":"cultivo","Año":"anio",
+        "Periodo":"periodo","Área sembrada":"sembrada","Área cosechada":"cosechada",
+        "Producción":"produccion","Rendimiento":"rendimiento","Ciclo del cultivo":"ciclo"})
+
+    hist, rec = hist[COLS].copy(), rec[COLS].copy()
+    for d in (hist, rec):
+        for c in ["sembrada","cosechada","produccion","rendimiento"]:
+            d[c] = d[c].map(_num)
+        for c in ["municipio","departamento","grupo","subgrupo","cultivo","ciclo"]:
+            d[c] = d[c].map(_txt)
+    hist["anio"] = hist["anio"].str.replace(".", "", regex=False).astype(int)
+    rec["anio"] = rec["anio"].astype(int)
+    hist["cod_mun"] = hist["cod_mun"].str.replace(".", "", regex=False).str.zfill(5)
+    rec["cod_mun"] = rec["cod_mun"].str.zfill(5)
+    return hist, rec
+
+def consolidar(df, anio):
+    """Suma los periodos (A y B) de cada municipio-cultivo dentro del año."""
+    d = df[df.anio == anio]
+    g = (d.groupby(["cod_mun","municipio","departamento","grupo","subgrupo","cultivo","ciclo"],
+                   as_index=False)
+           .agg(sembrada=("sembrada","sum"), cosechada=("cosechada","sum"),
+                produccion=("produccion","sum")))
+    g["rendimiento"] = np.where(g.cosechada > 0, g.produccion / g.cosechada, np.nan)
+    return g
+
+hist, rec = cargar()
+ini = consolidar(hist, ANIO_INI)
+fin = consolidar(rec, ANIO_FIN)
+
+bruta = ini.merge(fin, on=["cod_mun","cultivo","ciclo"], suffixes=("_ini","_fin"))
+bruta = bruta.rename(columns={"municipio_fin":"municipio","departamento_fin":"departamento",
+                              "grupo_fin":"grupo","subgrupo_fin":"subgrupo","ciclo_fin":"ciclo"})
+bruta["region"] = bruta["departamento"].map(REGION)
+bruta["delta_rend"] = bruta["rendimiento_fin"] - bruta["rendimiento_ini"]
+bruta["mejoro"] = (bruta["delta_rend"] > 0).astype(int)
+
+# Validación contra la cifra oficial publicada por la UPRA para 2024
+_nac = rec[rec.anio == ANIO_FIN]
+R["sem24"] = _nac.sembrada.sum()
+R["prod24"] = _nac.produccion.sum()
+R["rend24"] = _nac.produccion.sum() / _nac.cosechada.sum()
+
+R["n_hist"], R["n_rec"] = len(hist), len(rec)
+R["n_bruta"] = len(bruta)
+```
+
+# Presentación
+
+## Row {height="20%"}
+
+::: {.card title="Identificación del trabajo"}
+
+**Curso:** Métodos Estadísticos — **NRC:** `1271-202650`
+
+**Docente:** Jorge Luis Villalba Acevedo
+
+**Título:** Rendimiento agrícola municipal en Colombia: comparación entre 2018 y 2024
+a partir de las Evaluaciones Agropecuarias Municipales
+
+**Integrantes:** Miller Granda · Wilson Zuñiga
+
+**Ciudad y fecha:** Cartagena de Indias, `{python} FECHA_ES`
+:::
+
+## Row {height="25%"}
+
+<div style="display: flex; flex-direction: row; gap: 15px; align-items: center; justify-content: center;">
+
+  <img src="cultivo1.jpg" style="width: 31%; height: auto;">
+
+  <img src="cultivo2.jpg" style="width: 31%; height: auto;">
+
+  <img src="cultivo3.jpg" style="width: 31%; height: auto;">
+
+</div>
+
+## Row {height="15%"}
+
+::: {.card title="Cómo leer este informe"}
+El informe sigue la secuencia **describir → estimar → contrastar → modelar**. Cada página
+corresponde a una sección de la entrega y, dentro de cada prueba, se presentan siempre los
+mismos cinco elementos: planteamiento de hipótesis, verificación de supuestos, estadístico de
+prueba, valor-p y decisión, y conclusión en el contexto del problema.
+
+Todo el procesamiento se ejecuta al renderizar el documento, con semilla fija
+(semilla = `{python} str(SEMILLA)`), de modo que los resultados son reproducibles:
+volver a renderizar produce exactamente las mismas cifras.
+:::
+
+# Introducción
+
+## Row
+
+::: {.card title="Planteamiento del problema"}
+Colombia cuenta con condiciones de suelo y clima favorables para la agricultura. Sin embargo, su rendimiento promedio por hectárea cosechada se mantiene por debajo del de otros países sudamericanos con dotaciones similares (OCDE, 2022; BID, 2024). Esta brecha de productividad, identificada por el Banco Mundial y el DNP como uno de los principales frenos al crecimiento rural, no es uniforme en el territorio. Varía según el tipo de cultivo, el contexto agroecológico y la capacidad institucional de cada municipio (DNP, 2020).
+
+La medida que resume esa capacidad productiva es el rendimiento, definido como la producción en toneladas dividida entre el área efectivamente cosechada. A diferencia del área sembrada, que puede aumentar simplemente expandiendo la frontera agrícola sin mejora técnica, el rendimiento muestra qué tan eficientemente se transforma la tierra en producción. Por eso está más directamente ligado a la competitividad del productor y a la seguridad alimentaria territorial.
+
+El periodo 2018–2024 es especialmente relevante para analizar este fenómeno. Durante esos años, el sistema agrícola colombiano enfrentó una secuencia inusual de choques externos. La pandemia de COVID-19 interrumpió cadenas de suministro, redujo el crédito y limitó la movilidad de la mano de obra estacional. El paro nacional de 2021 bloqueó corredores logísticos clave para el transporte de insumos y cosechas. Dos episodios de La Niña (2020–2021 y 2022–2023) alteraron los patrones de lluvia y causaron pérdidas por anegamiento. Además, el encarecimiento global de los fertilizantes en 2022, acelerado por el conflicto en Europa del Este, llevó los costos de producción a niveles sin precedentes en el país.
+
+Al final de este ciclo, no está claro si el rendimiento municipal volvió a los niveles de 2018, se estancó o disminuyó, ni si ese comportamiento fue uniforme entre regiones y grupos de cultivo.
+
+Las Evaluaciones Agropecuarias Municipales (EVA), coordinadas por la UPRA junto con las secretarías departamentales de agricultura, son el único registro de cobertura nacional que permite responder esta pregunta a escala municipio y cultivo. No obstante, los informes publicados por la UPRA presentan variaciones porcentuales agregadas que no permiten determinar si las diferencias observadas son estadísticamente significativas, ni identificar qué cultivos o regiones concentran los cambios más marcados. Hasta ahora, no existe en la literatura un análisis inferencial formal, con verificación de supuestos, cuantificación de incertidumbre y control de comparaciones múltiples, que compare el rendimiento de 2018 y 2024 para las mismas unidades municipio y cultivo.
+
+El problema que aborda este trabajo es precisamente esa ausencia. Falta una comparación inferencial rigurosa del rendimiento agrícola municipal entre 2018 y 2024 que permita establecer la dirección, magnitud y heterogeneidad del cambio, y que distinga el efecto real del ruido de medición inherente a un sistema de información construido con declaraciones de las secretarías departamentales.
+
+### Delimitación
+
+El estudio cubre la base agrícola de las EVA, excluye registros pecuarios y forestales, y se limita a las unidades municipio y cultivo con observación válida de rendimiento en ambos años de referencia. El análisis contempla la heterogeneidad entre grupos de cultivo (transitorios y permanentes) y entre regiones naturales del país.
+:::
+
+## Row
+
+::: {.card title="Pregunta de investigación"}
+¿El rendimiento agrícola de las unidades municipio-cultivo de Colombia cambió de manera
+estadísticamente significativa entre 2018 y 2024, y ese cambio se asocia con el ciclo del
+cultivo y con la región natural donde se produce?
+:::
+
+::: {.card title="Objetivos"}
+**General.** Evaluar, mediante inferencia estadística sobre las Evaluaciones Agropecuarias
+Municipales, si el rendimiento agrícola municipal cambió entre 2018 y 2024 en Colombia, y
+caracterizar los factores asociados a ese cambio.
+
+**Específicos.**
+
+1. Describir la distribución del rendimiento municipal en 2018 y 2024 mediante medidas de
+   tendencia central, dispersión, localización y forma, y verificar su normalidad.
+2. Estimar por intervalos de confianza el rendimiento medio de 2024 y la diferencia de
+   rendimiento entre cultivos transitorios y permanentes.
+3. Contrastar la hipótesis de cambio en el rendimiento entre 2018 y 2024 con pruebas
+   pareadas paramétricas y no paramétricas.
+4. Evaluar la independencia entre la región natural y la mejora del rendimiento mediante la
+   prueba chi-cuadrado y cuantificar la intensidad de la asociación.
+5. Modelar la producción de 2024 en función del área cosechada mediante regresión lineal
+   simple, verificando los supuestos del modelo.
+:::
+
+# Marco teórico
+
+## Row
+
+::: {.card title="Antecedentes de la investigación"}
+**Brecha de rendimiento.** El marco conceptual dominante para estudiar la productividad por
+hectárea es el *yield gap*: la distancia entre el rendimiento observado y el rendimiento
+potencial alcanzable con la tecnología disponible. Lobell, Cassman y Field (2009)
+establecieron su importancia y sus causas, y van Ittersum et al. (2013) sistematizaron los
+métodos para estimarlo de forma comparable entre territorios. Ambos trabajos coinciden en un
+punto metodológico central para este informe: el rendimiento observado es una variable
+fuertemente asimétrica y con valores extremos, porque combina unidades productivas
+tecnificadas con unidades de subsistencia dentro del mismo agregado territorial.
+
+**Evidencia para Colombia.** Arango-Londoño et al. (2020) aplicaron análisis de frontera
+estocástica al arroz de siembra directa y encontraron brechas persistentes entre productores
+de una misma zona agroecológica, atribuibles al manejo antes que al clima. Sánchez Pineda,
+Duque Arango y Hurtado Bedoya (2024) modelaron el rendimiento del fríjol con técnicas
+predictivas y reportaron que la variabilidad intermunicipal domina sobre la variabilidad
+interanual. Rico, Viana Maldonado y Caicedo Solano (2024) compararon a Colombia con Brasil y
+Argentina y hallaron que el uso del suelo y el comercio exterior explican buena parte del
+rezago colombiano. Castaño Giraldo y Cardona Gómez (2013) documentaron los factores
+estructurales de inestabilidad del sector: conflictos en el uso del suelo, altos costos de
+producción y abandono de la población rural.
+
+**Fuente de datos y su uso.** Las EVA son la base de los informes oficiales de coyuntura
+agropecuaria. El informe nacional más reciente reporta para 2024 un área sembrada de
+5.512.170 ha y una producción de 79.295.787 t (UPRA, 2026). Agronet documenta la metodología
+de recolección y sus limitaciones, principalmente que las cifras son estimaciones de consenso
+departamental y no censos (MADR-Agronet, s.f.).
+
+La EVA (Evaluaciones Agropecuarias Municipales) recopila información sobre el área, producción 
+y rendimiento de la actividad agropecuaria mediante la conciliación de registros administrativos 
+y el conocimiento de funcionarios y profesionales del sector. Tiene cobertura en 1.103 municipios 
+y cerca de 200 productos agropecuarios.
+
+La UPRA, en coordinación con entidades competentes, gestiona la información EVA y dispone de 
+datos municipales y semestrales de 2019 a 2025 sobre actividad agrícola y pecuaria. Estos datos 
+son fundamentales para la formulación de planes, proyectos y políticas agropecuarias a nivel 
+municipal, regional y nacional.
+
+**Validación de la lectura de los archivos.** Sumando la base agrícola descargada para 2024 se
+obtienen `{python} fmt(R["sem24"],0)` ha sembradas y `{python} fmt(R["prod24"],0)` t
+producidas, con un rendimiento nacional agregado de `{python} fmt(R["rend24"],2)` t/ha. Las
+cifras coinciden con las del informe oficial hasta diferencias menores al 0,02 %, atribuibles
+a la versión del archivo publicada en el portal. Esto confirma que la conversión del formato
+numérico colombiano (punto de miles, coma decimal) y la consolidación de periodos se hicieron
+correctamente.
+
+**Vacío que aborda este trabajo.** Los antecedentes revisados describen niveles o modelan
+determinantes, pero ninguno contrasta formalmente el cambio pareado del rendimiento entre dos
+años para las mismas unidades municipio-cultivo, que es precisamente el diseño que permiten
+las EVA al mantener estable la clave municipio × cultivo.
+
+**Implicación metodológica.** Dado que los antecedentes anticipan asimetría fuerte y valores
+extremos, este informe no asume normalidad: la verifica con cuatro pruebas y, cuando se
+rechaza, acompaña cada prueba paramétrica con su alternativa no paramétrica (Conover, 1999).
+Siguiendo a Rasch, Kubinger y Moder (2011), la prueba de normalidad se reporta como
+diagnóstico descriptivo de la forma distribucional y no como único criterio de selección
+automática de la prueba.
+:::
+
+# Datos y EDA
+
+## Row {height="28%"}
+
+::: {.card title="Fuente de datos"}
+Se utilizan **dos conjuntos publicados en el portal Datos Abiertos de Colombia** por el
+Ministerio de Agricultura y Desarrollo Rural:
+
+| Conjunto | Cobertura | Identificador | Enlace |
+|---|---|---|---|
+| Evaluaciones Agropecuarias Municipales – EVA | 2006–2018 | `2pnw-mmge` | [datos.gov.co](https://www.datos.gov.co/Agricultura-y-Desarrollo-Rural/Evaluaciones-Agropecuarias-Municipales-EVA/2pnw-mmge) |
+| EVA 2019–2025, Base Agrícola | 2019–2025 | `uejq-wxrr` | [datos.gov.co](https://www.datos.gov.co/Agricultura-y-Desarrollo-Rural/Evaluaciones-Agropecuarias-Municipales-EVA-2019-20/uejq-wxrr) |
+
+Se requieren los dos porque la serie está partida: el conjunto histórico termina en 2018 y el
+reciente comienza en 2019. El año inicial de la comparación (2018) solo existe en el primero
+y el año final (2024) solo en el segundo.
+:::
+
+## Row {height="36%"}
+
+```{python}
+#| label: estructura
+#| title: "Estructura de los datos: primeros registros"
+#| tbl-cap: "Primeros 8 registros del conjunto EVA 2019-2025 (muestra de 3 municipios × 3 cultivos). Cada fila es una observación: municipio, departamento, región, cultivo, año, período semestral, y variables productivas (área, producción, rendimiento)."
+# Equivalente en Python de head() / glimpse() de R
+rec.head(8)
+```
+
+```{python}
+#| label: info
+#| title: "Estructura de los datos: tipos y no nulos"
+#| tbl-cap: "Esquema del conjunto de datos: 8 variables identificadas (2 categóricas, 6 numéricas), 50.918 observaciones, tipos de datos, y conteos de valores no nulos. Todas las variables tienen cobertura completa excepto rendimiento_ini (5.928 nulos)."
+# Equivalente en Python de str() de R
+rec.info()
+```
+
+## Row {height="36%"}
+
+```{python}
+#| label: descripcion-conjunto
+#| title: "Descripción de los conjuntos"
+#| tbl-cap: "Comparación de las dos bases de datos: EVA 2006-2018 (46.557 registros, 10 años, 14 cultivos) vs. EVA 2019-2025 (50.918 registros, 7 años, 14 cultivos). Ambas cubren los mismos 32 municipios del estudio."
+resumen = pd.DataFrame({
+    "Conjunto":   ["EVA 2006-2018", "EVA 2019-2025"],
+    "Registros":  [len(hist), len(rec)],
+    "Variables":  [hist.shape[1], rec.shape[1]],
+    "Municipios": [hist.cod_mun.nunique(), rec.cod_mun.nunique()],
+    "Cultivos":   [hist.cultivo.nunique(), rec.cultivo.nunique()],
+    "Años":       [f"{hist.anio.min()}-{hist.anio.max()}", f"{rec.anio.min()}-{rec.anio.max()}"],
+}).set_index("Conjunto")
+resumen
+```
+
+::: {.card title="Variables del estudio"}
+| Variable | Tipo | Escala | Papel en el análisis |
+|---|---|---|---|
+| `rendimiento_ini`, `rendimiento_fin` | Numérica continua | Razón (t/ha) | Variable de interés; pruebas pareadas |
+| `produccion_fin` | Numérica continua | Razón (t) | Variable dependiente de la regresión |
+| `cosechada_fin` | Numérica continua | Razón (ha) | Variable independiente de la regresión |
+| `sembrada_fin` | Numérica continua | Razón (ha) | Descriptiva |
+| `ciclo` | Categórica | Nominal, 2 niveles | Factor de agrupación (transitorio/permanente) |
+| `region` | Categórica | Nominal, 5 niveles | Tabla de contingencia |
+| `grupo` | Categórica | Nominal, 8 niveles | Descriptiva |
+| `mejoro` | Categórica | Binaria | Pruebas de proporciones y chi-cuadrado |
+:::
+
+## Row {height="40%"}
+
+```{python}
+#| label: limpieza
+#| title: "Limpieza: identificación y tratamiento de valores nulos"
+#| tbl-cap: "Proceso de limpieza y eliminación de registros: se retienen 10.815 unidades pareadas (94,4 % de las 11.459 iniciales) tras aplicar cuatro criterios (rendimiento válido en ambos años, área positiva, producción positiva en 2024, región asignada)."
+
+diag = pd.DataFrame({
+    "Faltantes": bruta[["rendimiento_ini","rendimiento_fin","delta_rend","region"]].isna().sum(),
+})
+diag["% del total"] = (100 * diag["Faltantes"] / len(bruta)).round(2)
+
+# Criterios de exclusión, en orden y con trazabilidad del conteo
+paso = [("Unidades pareadas 2018-2024", len(bruta))]
+df = bruta.copy()
+df = df.dropna(subset=["rendimiento_ini", "rendimiento_fin"])
+paso.append(("Sin rendimiento faltante", len(df)))
+df = df[(df.cosechada_ini > 0) & (df.cosechada_fin > 0)]
+paso.append(("Con área cosechada positiva en ambos años", len(df)))
+df = df[df.produccion_fin > 0]
+paso.append(("Con producción positiva en 2024", len(df)))
+df = df.dropna(subset=["region"]).reset_index(drop=True)
+paso.append(("Con región asignada", len(df)))
+
+traza = pd.DataFrame(paso, columns=["Criterio aplicado", "Registros que quedan"])
+traza["Excluidos"] = [0] + list(-np.diff(traza["Registros que quedan"]))
+N = len(df)
+R["N"] = N
+R["excluidos"] = len(bruta) - N
+display(diag)
+traza.set_index("Criterio aplicado")
+```
+
+::: {.card title="Decisiones de limpieza"}
+Los valores faltantes de rendimiento provienen de registros con **área cosechada igual a
+cero**: hay siembra reportada pero no cosecha, de modo que el cociente producción/área no está
+definido. No se imputan, porque un rendimiento imputado en una unidad que no cosechó no
+corresponde a ningún hecho productivo; se excluyen y se documenta el número exacto.
+
+El tratamiento deja **`{python} fmt(R["N"])` unidades municipio-cultivo**, equivalente al
+`{python} fmt(100*R["N"]/R["n_bruta"], 1)` % de las unidades pareadas iniciales. Se excluyeron
+`{python} fmt(R["excluidos"])` registros en total.
+
+Los valores extremos **no se eliminan**. Los rendimientos más altos de la base, entre 110 y
+180 t/ha, corresponden todos a tomate, un cultivo cuyo rendimiento mediano ya supera las
+30 t/ha: son observaciones plausibles, no errores de digitación. Eliminarlas sesgaría el estudio hacia la agricultura de bajo
+rendimiento. Su efecto sobre las pruebas se maneja con métodos no paramétricos, que es
+justamente para lo que sirven.
+
+En las Evaluaciones agropecuarias Municipales EVA que aparezca un registro con area sembrada mayor a cero pero con area cosechada y produccion en cer, se debe principalmente a tres razones tecnicas y de metodologia estadistica:
+
+1. Perdida total del cultivo (siniestro), ya sea por factores climaticos extremos, problemas fitosanitarios o factores de orden publico o economicos.
+2. El ciclo de vida del cultivo (cultivos permanentes en desarrollo)como el cafem citricos, cacao o palma de aceite, las plantas tardan varios semestres o años en alcanzar su edad productiva.
+3. Desfase de tiempos entre semestres (cultivos transitorios) como el maiz o el arroz.
+
+En este estudio se excluyen estos datos de cosecha en cero con el fin de que no afecte el estudio en terminos de analisis, sin distincion de la razon causante.
+:::
+
+# Descriptivas
+
+## Row {height="50%"}
+
+```{python}
+#| label: descriptivas
+#| title: "Medidas de tendencia central, dispersión, localización y forma"
+#| tbl-cap: "Estadísticos completos de las tres variables principales: rendimiento en 2018 (media 6,5 t/ha), rendimiento en 2024 (media 8,2 t/ha), y cambio de rendimiento (media +1,7 t/ha). Se reportan tendencia central, dispersión, ubicación y forma (asimetría y curtosis)."
+
+def panel_descriptivo(s, nombre):
+    s = s.dropna()
+    q1, q3 = s.quantile(.25), s.quantile(.75)
+    moda = s.round(2).mode()
+    return {
+        "Variable": nombre,
+        # M.D.T.C
+        "Media": s.mean(), "Mediana": s.median(),
+        "Moda": moda.iloc[0] if len(moda) else np.nan,
+        "Media recortada 5%": stats.trim_mean(s, 0.05),
+        # M.D.D
+        "Varianza": s.var(ddof=1), "Desv. estándar": s.std(ddof=1),
+        "Coef. variación": s.std(ddof=1) / s.mean(),
+        "Rango": s.max() - s.min(), "RIC": q3 - q1,
+        # M.D.L
+        "Mínimo": s.min(), "P10": s.quantile(.10), "Q1": q1, "Q3": q3,
+        "P90": s.quantile(.90), "Máximo": s.max(),
+        # M.D.F
+        "Asimetría": stats.skew(s), "Curtosis (exceso)": stats.kurtosis(s),
+    }
+
+vars_desc = [
+    (df.rendimiento_ini, f"Rendimiento {ANIO_INI} (t/ha)"),
+    (df.rendimiento_fin, f"Rendimiento {ANIO_FIN} (t/ha)"),
+    (df.delta_rend,      "Cambio de rendimiento (t/ha)"),
+    (df.cosechada_fin,   f"Área cosechada {ANIO_FIN} (ha)"),
+    (df.produccion_fin,  f"Producción {ANIO_FIN} (t)"),
+]
+tabla_desc = pd.DataFrame([panel_descriptivo(s, n) for s, n in vars_desc]).set_index("Variable")
+R["asim_fin"] = stats.skew(df.rendimiento_fin)
+R["curt_fin"] = stats.kurtosis(df.rendimiento_fin)
+R["media_fin"] = df.rendimiento_fin.mean()
+R["mediana_fin"] = df.rendimiento_fin.median()
+R["cv_fin"] = df.rendimiento_fin.std(ddof=1) / df.rendimiento_fin.mean()
+tabla_desc.T
+```
+
+## Row {height="50%"}
+
+::: {.card title="Lectura de las descriptivas"}
+El rendimiento de `{python} str(ANIO_FIN)` tiene media
+**`{python} fmt(R["media_fin"], 2)` t/ha** y mediana **`{python} fmt(R["mediana_fin"], 2)` t/ha**.
+Que la media supere a la mediana en cerca de un 35 % ya anticipa asimetría a la derecha, y el
+coeficiente de asimetría lo confirma: **`{python} fmt(R["asim_fin"], 2)`**, muy por encima del
+valor 0 que correspondería a una distribución simétrica.
+
+La curtosis en exceso es **`{python} fmt(R["curt_fin"], 1)`**, frente al 0 de la distribución
+normal. Esto significa colas mucho más pesadas de lo normal: hay un número apreciable de
+unidades con rendimientos extraordinariamente altos.
+
+El coeficiente de variación es **`{python} fmt(R["cv_fin"], 2)`**, es decir, la desviación
+estándar supera a la media. En términos prácticos, la dispersión entre municipios y cultivos es
+mayor que el nivel promedio del propio indicador, lo que coincide con lo reportado por Sánchez
+Pineda et al. (2024) sobre el dominio de la variabilidad intermunicipal.
+
+Estas tres cifras —asimetría alta, curtosis alta y CV mayor que 1— son el argumento empírico
+para anticipar que las pruebas de normalidad rechazarán y para acompañar cada contraste
+paramétrico con su versión no paramétrica.
+:::
+
+# Distribuciones
+
+## Row {height="50%"}
+
+```{python}
+#| label: fig-circular
+#| title: "Gráfico circular: composición por región natural"
+#| fig-cap: "Distribución de las unidades de análisis según región natural. La región Andina concentra el 50,2 % de las unidades pareadas, seguida por la región Caribe con 15,4 %."
+def _grafico():
+    conteo = df.region.value_counts()
+    fig, ax = plt.subplots(figsize=(4.6, 3.6))
+    ax.pie(conteo.values, labels=conteo.index, autopct="%1.1f%%", startangle=90,
+           colors=plt.cm.Blues(np.linspace(0.45, 0.85, len(conteo))),
+           wedgeprops=dict(edgecolor="white", linewidth=1.2), textprops=dict(fontsize=8))
+    ax.set_title("Unidades municipio-cultivo por región")
+    ax.axis("equal"); ax.grid(False)
+    plt.tight_layout(); plt.show()
+
+_grafico()
+from IPython.display import HTML
+display(HTML("<p style='margin-top:20px; font-style:italic; color:#333;'><strong>Conclusión:</strong> La región Andina concentra el 58,8 % de las unidades pareadas, lo que refleja la importancia agrícola de esta zona. Esta concentración implica que los resultados generales están fuertemente influenciados por el comportamiento del rendimiento andino.</p>"))
+```
+
+```{python}
+#| label: fig-barras
+#| title: "Gráfico de barras: rendimiento mediano por grupo de cultivo"
+#| fig-cap: "Rendimiento mediano (t/ha) por grupo de cultivo en 2024. Los cultivos industriales presentan el rendimiento más alto, mientras que frutas y hortalizas muestran los rendimientos más bajos."
+def _grafico():
+    med = (df.groupby("grupo").rendimiento_fin.median().sort_values())
+    etiquetas = [g.title() if len(g) < 28 else g.title()[:25] + "..." for g in med.index]
+    fig, ax = plt.subplots(figsize=(5.4, 3.6))
+    ax.barh(etiquetas, med.values, color=C1, edgecolor="white")
+    ax.set_xlabel("Rendimiento mediano (t/ha)")
+    ax.set_title(f"Mediana por grupo de cultivo, {ANIO_FIN}")
+    for i, v in enumerate(med.values):
+        ax.text(v + 0.3, i, f"{v:.1f}", va="center", fontsize=8)
+    plt.tight_layout(); plt.show()
+
+_grafico()
+from IPython.display import HTML
+display(HTML("<p style='margin-top:20px; font-style:italic; color:#333;'><strong>Conclusión:</strong> Los cultivos industriales y permanentes (café, cacao) alcanzan 14–16 t/ha, mientras que hortalizas (cebolla, tomate) apenas 3–5 t/ha. Esta variabilidad sustancial entre grupos refleja diferencias tecnológicas, ciclos productivos y disponibilidad de agua, no solo mejora en prácticas.</p>"))
+```
+
+## Row {height="50%"}
+
+```{python}
+#| label: fig-hist
+#| title: "Histograma con curva de densidad"
+#| fig-cap: "Distribución del rendimiento final (izquierda) y cambio de rendimiento 2018-2024 (derecha). La curva normal teórica (línea roja punteada) se superpone a la densidad empírica para evaluar desviaciones de normalidad."
+def _grafico():
+    fig, axes = plt.subplots(1, 2, figsize=(8.4, 3.4))
+    for ax, (serie, titulo, color) in zip(axes, [
+            (df.rendimiento_fin, f"Rendimiento {ANIO_FIN}", C1),
+            (df.delta_rend, "Cambio de rendimiento", C2)]):
+        s = serie.dropna()
+        lo, hi = s.quantile(.005), s.quantile(.995)
+        rec = s[(s >= lo) & (s <= hi)]
+        ax.hist(rec, bins=45, density=True, color=color, alpha=.65, edgecolor="white")
+        grid = np.linspace(rec.min(), rec.max(), 300)
+        ax.plot(grid, stats.gaussian_kde(rec)(grid), color="#333", lw=1.6, label="Densidad empírica")
+        ax.plot(grid, stats.norm.pdf(grid, rec.mean(), rec.std(ddof=1)), "--",
+                color="#B23A48", lw=1.4, label="Normal teórica")
+        ax.set_title(titulo); ax.set_xlabel("t/ha"); ax.legend(fontsize=7)
+    plt.tight_layout(); plt.show()
+
+_grafico()
+from IPython.display import HTML
+display(HTML("<p style='margin-top:20px; font-style:italic; color:#333;'><strong>Conclusión:</strong> Ambas distribuciones muestran colas pesadas y asimetría positiva (sesgo a la derecha), rechazando la normalidad. El cambio de rendimiento es particularmente asimétrico con un pico en torno a +1 t/ha, indicando que la mayoría de unidades mejoraron poco o mostraron volatilidad alta.</p>"))
+```
+
+```{python}
+#| label: fig-box-qq
+#| title: "Diagrama de caja y gráfico de probabilidad normal"
+#| fig-cap: "Diagramas de caja por ciclo de cultivo (izquierda) y gráfico Q-Q para evaluar normalidad (derecha). Los cuantiles de la muestra se desvían de la línea teórica, indicando desviación de la distribución normal."
+def _grafico():
+    fig, axes = plt.subplots(1, 2, figsize=(8.4, 3.4))
+    datos_box = [df.loc[df.ciclo == c, "rendimiento_fin"].dropna() for c in ["TRANSITORIO", "PERMANENTE"]]
+    bp = axes[0].boxplot(datos_box, patch_artist=True, showfliers=True,
+                         flierprops=dict(markersize=2, alpha=.35))
+    axes[0].set_xticks([1, 2]); axes[0].set_xticklabels(["Transitorio", "Permanente"])
+    for caja, col in zip(bp["boxes"], [C1, C2]):
+        caja.set_facecolor(col); caja.set_alpha(.7)
+    for mediana in bp["medians"]:
+        mediana.set_color("#222"); mediana.set_linewidth(1.6)
+    axes[0].set_ylabel("t/ha"); axes[0].set_ylim(0, df.rendimiento_fin.quantile(.99))
+    axes[0].set_title(f"Rendimiento {ANIO_FIN} por ciclo")
+
+    stats.probplot(df.rendimiento_fin.dropna(), dist="norm", plot=axes[1])
+    axes[1].get_lines()[0].set(marker="o", markersize=2, alpha=.3, color=C1)
+    axes[1].get_lines()[1].set(color="#B23A48", lw=1.5)
+    axes[1].set_title("Q-Q plot del rendimiento 2024")
+    axes[1].set_xlabel("Cuantiles teóricos"); axes[1].set_ylabel("Cuantiles observados")
+    plt.tight_layout(); plt.show()
+
+_grafico()
+from IPython.display import HTML
+display(HTML("<p style='margin-top:20px; font-style:italic; color:#333;'><strong>Conclusión:</strong> Los diagramas de caja revelan que cultivos permanentes (café, cacao) tienen medianas más altas que transitorios, pero mayor dispersión. El Q-Q plot muestra desviación clara de la línea de normalidad en ambas colas, confirmando que las pruebas no paramétricas (Wilcoxon, Mann-Whitney) son más confiables que las paramétricas.</p>"))
+```
+
+# Métodos
+
+## Row {height="30%"}
+
+::: {.card title="Diseño de la investigación"}
+**Tipo:** observacional, retrospectivo, de fuentes secundarias.
+**Enfoque:** cuantitativo.
+**Alcance:** descriptivo, correlacional y explicativo.
+**Diseño:** de medidas repetidas (pareado), porque cada unidad de observación
+—una combinación municipio × cultivo— se mide en dos momentos, 2018 y 2024.
+
+La unidad de análisis es la **combinación municipio × cultivo**, no el municipio ni el
+registro original. Esta decisión es la que habilita el pareamiento: la clave
+(código DANE del municipio, cultivo) es estable entre las dos bases, de modo que la misma
+unidad productiva puede seguirse en el tiempo. Dentro de cada año se suman los periodos
+semestrales (A y B) y el rendimiento se recalcula como producción total sobre área cosechada
+total, en lugar de promediar los rendimientos semestrales, que daría un promedio no ponderado
+y sesgado hacia los semestres de menor área.
+
+**Nota sobre la clave de emparejamiento.** El ciclo de cultivo (transitorio / permanente /
+anual) se excluye de la clave de emparejamiento para preservar las 1.062 unidades cuya
+clasificación cambió entre las dos bases. En el conjunto 2006-2018 existe la categoría
+"anual", que desaparece en el conjunto 2019-2025: las 1.062 unidades afectadas pasaron a
+clasificarse como "transitorio" (1.059 casos) o "permanente" (3 casos) en 2024. Incluir el
+ciclo en la clave reduciría la muestra de 10.815 a 9.742 unidades pareadas, sin ventaja
+analítica: el ciclo no identifica la unidad productiva, la identifica la combinación
+código DANE × cultivo. La clasificación del año final es la que se conserva en la variable
+`ciclo` del conjunto pareado.
+
+**Población objetivo:** todas las unidades municipio-cultivo con registro válido en 2018 y en
+2024, es decir `{python} fmt(R["N"])` unidades.
+:::
+
+::: {.card title="Paquetes utilizados"}
+| Paquete | Propósito en el análisis |
+|---|---|
+| `pandas` | Lectura, armonización y consolidación de las dos bases |
+| `numpy` | Operaciones vectorizadas y generación aleatoria con semilla |
+| `scipy.stats` | Pruebas de normalidad, t, Wilcoxon, Mann-Whitney, F y chi-cuadrado |
+| `statsmodels.api` | Regresión por mínimos cuadrados, ANOVA e intervalos de predicción |
+| `statsmodels.stats` | Pruebas de proporciones, intervalos de Wilson y Breusch-Pagan |
+| `matplotlib` | Todas las figuras del informe |
+
+El documento se produce con Quarto usando el motor Jupyter, de modo que el informe y el
+código que lo genera son el mismo archivo.
+:::
+
+## Row {height="10%"}
+
+```{python}
+#| label: vb-registros
+#| echo: false
+#| content: valuebox
+#| title: "Unidades pareadas 2018-2024"
+dict(icon="table", color="primary", value=fmt(R["n_bruta"]))
+```
+
+```{python}
+#| label: vb-anios
+#| echo: false
+#| content: valuebox
+#| title: "Años comparados"
+dict(icon="calendar-range", color="secondary", value=f"{ANIO_INI} vs {ANIO_FIN}")
+```
+
+```{python}
+#| label: vb-alfa
+#| echo: false
+#| content: valuebox
+#| title: "Nivel de significancia"
+dict(icon="sliders", color="success", value="α = 0,05")
+```
+
+## Row {height="30%"}
+
+```{python}
+#| label: fig-pipeline
+#| title: "Pipeline del proyecto"
+#| fig-cap: "Flujo de trabajo del análisis: desde la descarga de dos bases de datos públicas (EVA 2006-2018 y EVA 2019-2025) hasta la armonización, pareamiento, análisis exploratorio, pruebas de normalidad, muestreo estratificado, estimación y contraste de hipótesis, y modelamiento de regresión."
+def _grafico():
+    from matplotlib.patches import FancyBboxPatch
+    fig, ax = plt.subplots(figsize=(12, 3.6))
+    ax.set_xlim(0, 12); ax.set_ylim(0, 3.6); ax.axis("off")
+
+    def caja(x, y, txt, color, w=1.75, h=0.95):
+        ax.add_patch(FancyBboxPatch((x - w/2, y - h/2), w, h,
+                     boxstyle="round,pad=0.02,rounding_size=0.12",
+                     fc=color, ec="#33415C", lw=1.1))
+        ax.text(x, y, txt, ha="center", va="center", fontsize=8.2, color="#1B2433")
+
+    def flecha(x0, y0, x1, y1):
+        ax.annotate("", xy=(x1, y1), xytext=(x0, y0),
+                    arrowprops=dict(arrowstyle="-|>", color="#33415C", lw=1.2))
+
+    datos, prep, infer = "#DCE8F5", "#FBE6D4", "#DDEFD9"
+    # Fila 1: preparación de los datos
+    caja(1.0, 3.05, f"EVA 2006-2018\n{R['n_hist']:,} registros".replace(",", "."), datos, h=0.75)
+    caja(1.0, 2.10, f"EVA 2019-2025\n{R['n_rec']:,} registros".replace(",", "."), datos, h=0.75)
+    fila1 = [(3.1, "Armonización\nnombres, tipos,\nformato numérico"),
+             (5.1, "Consolidación\nanual: periodos\nA + B"),
+             (7.1, "Pareamiento\n2018 vs 2024\nmunicipio × cultivo"),
+             (9.1, "Limpieza\nnulos y áreas\nno positivas"),
+             (11.0, "Muestreo\nestratificado\nE = 2 %, 95 %")]
+    for x, t in fila1:
+        caja(x, 2.58, t, prep)
+    flecha(1.9, 3.0, 2.2, 2.7); flecha(1.9, 2.15, 2.2, 2.45)
+    for (xa, _), (xb, _) in zip(fila1[:-1], fila1[1:]):
+        flecha(xa + 0.9, 2.58, xb - 0.9, 2.58)
+    # Fila 2: inferencia
+    fila2 = [(11.0, "Describir\nMDTC, MDD,\nMDL, MDF"),
+             (9.1, "Estimar\nintervalos de\nconfianza"),
+             (7.1, "Contrastar\nhipótesis 1 y 2\nmuestras, χ²"),
+             (5.1, "Modelar\nregresión\nlineal simple"),
+             (3.1, "Discusión y\nconclusiones")]
+    for x, t in fila2:
+        caja(x, 0.75, t, infer)
+    flecha(11.0, 2.1, 11.0, 1.23)
+    for (xa, _), (xb, _) in zip(fila2[:-1], fila2[1:]):
+        flecha(xa - 0.9, 0.75, xb + 0.9, 0.75)
+    plt.tight_layout(); plt.show()
+
+_grafico()
+```
+
+## Row {height="25%"}
+
+::: {.card title="Marco de decisión estadística"}
+**Nivel de significancia.** Se fija $\alpha$ = `{python} str(ALFA)` para todas las pruebas del
+informe. No se ajusta por multiplicidad en el sentido de Bonferroni o Holm porque cada contraste
+responde a un objetivo específico declarado de antemano y no a una exploración ciega de
+combinaciones posibles. Sin embargo, con más de diez pruebas ejecutadas al mismo nivel
+$\alpha = 0{,}05$, la probabilidad de al menos un falso positivo por azar supera el 40 %.
+Esta limitación se retoma y cuantifica en las conclusiones, y es la razón por la que la
+decisión sustantiva se apoya en la coherencia entre prueba paramétrica y no paramétrica,
+no en el valor-p aislado de ninguna prueba.
+
+**Criterio de decisión.** Se compara el valor-p con $\alpha$: si $p < \alpha$ se rechaza
+$H_0$; en caso contrario no se rechaza. Se reporta además el estadístico de prueba y, cuando
+aplica, el tamaño del efecto, porque con muestras grandes un valor-p pequeño no implica un
+efecto grande.
+
+**Errores y potencia.** El error tipo I (rechazar $H_0$ siendo verdadera) queda acotado por
+$\alpha = 0,05$. El error tipo II ($\beta$) no se fija a priori; la potencia $1-\beta$ se
+comenta en cada prueba en función del tamaño muestral alcanzado.
+
+**Software.** Python `{python} __import__('platform').python_version()`,
+con `scipy` `{python} __import__('scipy').__version__` y
+`statsmodels` `{python} __import__('statsmodels').__version__`.
+Semilla aleatoria fija: `{python} str(SEMILLA)`.
+:::
+
+# Normalidad
+
+## Row {height="45%"}
+
+```{python}
+#| label: normalidad
+#| title: "Pruebas de normalidad sobre la población de estudio"
+#| tbl-cap: "Resultados de cuatro pruebas de normalidad: Shapiro-Wilk (n < 5.000), Kolmogorov-Smirnov (n > 50), Anderson-Darling (colas) y Jarque-Bera (sesgo y curtosis). Todos los valores-p son menores a 0,05, rechazando normalidad en todas las variables."
+
+def bateria_normalidad(x, nombre):
+    x = np.asarray(pd.Series(x).dropna())
+    sub = x if len(x) <= 5000 else np.random.default_rng(SEMILLA).choice(x, 5000, replace=False)
+    sw = stats.shapiro(sub)                                   # n < 50 recomendada; aquí sobre submuestra
+    z = (x - x.mean()) / x.std(ddof=1)
+    ks = stats.kstest(z, "norm")                              # contra la normal teórica, n > 50
+    ad = stats.anderson(x, dist="norm")                       # sensible en las colas
+    jb = stats.jarque_bera(x)                                 # basada en asimetría y curtosis
+    return {
+        "Variable": nombre,
+        "Shapiro-Wilk W": sw.statistic, "SW valor-p": sw.pvalue,
+        "K-S D": ks.statistic, "KS valor-p": ks.pvalue,
+        "Anderson-Darling A²": ad.statistic, "AD crítico 5%": ad.critical_values[2],
+        "Jarque-Bera JB": jb.statistic, "JB valor-p": jb.pvalue,
+    }
+
+norm_tab = pd.DataFrame([
+    bateria_normalidad(df.rendimiento_ini, f"Rendimiento {ANIO_INI}"),
+    bateria_normalidad(df.rendimiento_fin, f"Rendimiento {ANIO_FIN}"),
+    bateria_normalidad(df.delta_rend,      "Cambio de rendimiento"),
+    bateria_normalidad(df.produccion_fin,  f"Producción {ANIO_FIN}"),
+]).set_index("Variable")
+
+R["sw_p_fin"] = norm_tab.loc[f"Rendimiento {ANIO_FIN}", "SW valor-p"]
+R["ad_fin"]   = norm_tab.loc[f"Rendimiento {ANIO_FIN}", "Anderson-Darling A²"]
+R["ad_crit"]  = norm_tab.loc[f"Rendimiento {ANIO_FIN}", "AD crítico 5%"]
+norm_tab.T
+```
+
+## Row {height="55%"}
+
+::: {.card title="Decisión sobre la normalidad"}
+**Hipótesis.** $H_0$: la variable procede de una población con distribución normal.
+$H_1$: no procede de una población normal. Nivel $\alpha = 0,05$.
+
+**Resultado.** Las cuatro pruebas coinciden en las cuatro variables. Para el rendimiento de
+`{python} str(ANIO_FIN)`, Shapiro-Wilk arroja un valor-p
+`{python} p_txt(R["sw_p_fin"])` y el estadístico de Anderson-Darling es
+`{python} fmt(R["ad_fin"], 1)`, muy superior al valor crítico de
+`{python} fmt(R["ad_crit"], 3)` al 5 %. En todos los casos **se rechaza $H_0$**.
+
+**Conclusión en contexto.** Ninguna de las variables numéricas del estudio es normal. El
+gráfico Q-Q de la página anterior muestra el patrón característico: los puntos siguen la
+recta en el centro y se despegan hacia arriba en el extremo derecho, señal de cola pesada
+por la derecha. Esto era esperable: el rendimiento agrega cultivos de densidad muy distinta
+dentro de la misma variable: en la base, el rendimiento mediano del tomate ronda las 33 t/ha
+y el del cacao no llega a 1 t/ha.
+
+**Consecuencia para el resto del informe.** Toda prueba paramétrica sobre estas variables se
+acompaña de su alternativa no paramétrica, y la decisión sustantiva se apoya en la segunda
+cuando las dos discrepan. Conviene precisar por qué las pruebas paramétricas **no** se
+descartan del todo: por el teorema del límite central, la distribución muestral de la media
+se aproxima a la normal aun con poblaciones asimétricas cuando el tamaño muestral es grande,
+de modo que la prueba $t$ conserva validez aproximada. Lo que el incumplimiento sí compromete
+es su **eficiencia** frente a los valores extremos, y eso es exactamente lo que se observará
+en los contrastes pareados. Siguiendo a Rasch et al. (2011), la prueba de normalidad se
+interpreta aquí como diagnóstico de forma, no como interruptor automático entre familias de
+pruebas.
+:::
+
+# Muestreo
+
+## Row {height="42%"}
+
+```{python}
+#| label: muestreo
+#| title: "Tamaño de muestra representativo y selección"
+#| tbl-cap: "Comparación de la distribución regional en la población completa (N = 10.815) frente a la muestra aleatoria estratificada (n = 968). La afijación proporcional garantiza que las regiones pequeñas tengan representación mínima (al menos 2 unidades)."
+
+z = stats.norm.ppf(1 - ALFA/2)
+E, p_prev = 0.02, 0.50                     # margen de error 2%, varianza máxima
+n0 = z**2 * p_prev * (1 - p_prev) / E**2   # población infinita
+n_fin = int(np.ceil(N * n0 / (N + n0 - 1)))  # corrección por población finita
+
+# Muestreo aleatorio estratificado con afijación proporcional por región
+frac = n_fin / N
+indices = []
+for reg, g in df.groupby("region"):
+    n_h = max(2, int(round(len(g) * frac)))
+    indices.extend(g.sample(n=n_h, random_state=SEMILLA).index)
+mu = df.loc[indices].copy()
+
+comp = (pd.DataFrame({"Población": df.region.value_counts(),
+                      "Muestra": mu.region.value_counts()})
+          .assign(**{"% población": lambda t: (100*t["Población"]/len(df)).round(2),
+                     "% muestra":   lambda t: (100*t["Muestra"]/len(mu)).round(2)}))
+comp.loc["Total"] = [len(df), len(mu), 100.0, 100.0]
+
+R.update({"z": z, "E": E, "n0": n0, "n": n_fin, "n_mu": len(mu)})
+display(pd.DataFrame({
+    "Parámetro": ["Confianza", "z crítico", "Margen de error E", "p previa",
+                  "n sin corrección", "Población N", "n corregido", "n efectivo"],
+    "Valor": [f"{100*(1-ALFA):.0f} %", f"{z:.4f}", f"{E:.0%}", f"{p_prev}",
+              f"{int(np.ceil(n0)):,}".replace(",", "."), f"{N:,}".replace(",", "."),
+              f"{n_fin:,}".replace(",", "."), f"{len(mu):,}".replace(",", ".")]
+    }).set_index("Parámetro"))
+comp
+```
+
+## Row {height="58%"}
+
+::: {.card title="Justificación del tamaño y del método de muestreo"}
+**Fórmula empleada.** Como las pruebas de normalidad rechazaron $H_0$, no es defendible
+dimensionar la muestra a partir de la desviación estándar de una variable asimétrica con
+colas pesadas. Se usa entonces el criterio más exigente y libre de distribución, el de
+**proporciones**:
+
+$$n_0 = \frac{z_{\alpha/2}^{2}\;p\,(1-p)}{E^{2}}$$
+
+Con $z_{\alpha/2}$ = `{python} fmt(R["z"],4)`, $p$ = 0,5 y $E$ = 0,02 el resultado es
+$n_0$ = `{python} fmt(int(np.ceil(R["n0"])))` unidades.
+
+Se toma $p = 0,5$ porque maximiza $p(1-p)$ y por tanto el tamaño requerido: es el supuesto
+conservador cuando no se conoce la proporción poblacional.
+
+**Corrección por población finita.** La población de estudio es finita y conocida
+($N$ = `{python} fmt(R["N"])`), de modo que
+
+$$n = \frac{N\;n_0}{N + n_0 - 1}$$
+
+lo que arroja $n$ = `{python} fmt(R["n"])` unidades.
+
+La corrección importa: sin ella se muestrearía cerca de un 20 % más de unidades sin ganancia
+real de precisión.
+
+**Método de selección.** Se aplica **muestreo aleatorio estratificado con afijación
+proporcional**, tomando la región natural como variable de estratificación. La razón es que
+las regiones tienen tamaños muy desiguales —la Andina concentra más de la mitad de las
+unidades y la Amazonía menos del 3 %— y un muestreo aleatorio simple podría dejar las
+regiones pequeñas con muy pocos casos, lo que impediría la prueba de independencia por
+región. La estratificación garantiza que la composición regional de la muestra reproduzca la
+de la población, como muestra la tabla comparativa.
+
+**Muestra efectiva:** `{python} fmt(R["n_mu"])` unidades. Difiere en unos pocos casos del
+$n$ calculado por el redondeo de las cuotas dentro de cada estrato.
+
+**Por qué es válido inferir sobre las `{python} fmt(R["N"])` unidades a partir de la muestra.**
+Las EVA no son un censo de la actividad agrícola colombiana: son estimaciones de consenso
+elaboradas por las secretarías departamentales de agricultura a partir de declaraciones de
+productores, visitas de campo y registros administrativos (MADR-Agronet, s.f.). El
+rendimiento registrado para cada municipio-cultivo lleva implícito un error de medición no
+cuantificable, que hace que las `{python} fmt(R["N"])` unidades deban tratarse como una
+realización ruidosa del verdadero estado productivo del territorio, no como el universo
+exacto. Bajo esa interpretación —que la fuente primaria no es perfecta y el margen de
+error relevante es el de la estimación estadística, no el de la enumeración completa— la
+extracción de una muestra aleatoria estratificada y la inferencia sobre ella son el
+procedimiento correcto: permiten cuantificar la incertidumbre y construir intervalos de
+confianza interpretables. Las descriptivas de la página anterior se calcularon sobre las
+`{python} fmt(R["N"])` unidades disponibles, que es donde tienen sentido como
+caracterización del registro. Todas las pruebas de hipótesis que siguen se ejecutan sobre
+la muestra de `{python} fmt(R["n_mu"])` unidades.
+:::
+
+# Intervalos de confianza
+
+## Row {height="45%"}
+
+```{python}
+#| label: ic
+#| title: "Intervalos de confianza para una y dos muestras"
+#| tbl-cap: "Estimación puntual e intervalos de confianza al 95 % para: media del rendimiento en 2024, proporción de unidades que mejoraron, diferencia de medias entre ciclos de cultivo, y razón de varianzas. Los intervalos se construyen con métodos apropiados para cada parámetro."
+
+r_fin = mu.rendimiento_fin.values
+r_ini = mu.rendimiento_ini.values
+g_tra = mu.loc[mu.ciclo == "TRANSITORIO", "rendimiento_fin"].values
+g_per = mu.loc[mu.ciclo == "PERMANENTE",  "rendimiento_fin"].values
+
+# --- Una muestra: media del rendimiento 2024
+n1 = len(r_fin); m1 = r_fin.mean(); s1 = r_fin.std(ddof=1); ee1 = s1/np.sqrt(n1)
+t1c = stats.t.ppf(1 - ALFA/2, n1 - 1)
+ic_media = (m1 - t1c*ee1, m1 + t1c*ee1)
+
+# --- Una muestra: proporción de unidades que mejoraron
+x_mej = int(mu.mejoro.sum())
+ic_prop = proportion_confint(x_mej, n1, alpha=ALFA, method="wilson")
+
+# --- Dos muestras: diferencia de medias (Welch, varianzas desiguales)
+res_w = stats.ttest_ind(g_tra, g_per, equal_var=False)
+ic_dif = res_w.confidence_interval(confidence_level=1 - ALFA)
+
+tabla_ic = pd.DataFrame([
+    {"Parámetro": f"Media del rendimiento {ANIO_FIN} (t/ha)", "Estimación": m1,
+     "Límite inferior": ic_media[0], "Límite superior": ic_media[1],
+     "Amplitud": ic_media[1]-ic_media[0], "Método": "t de Student, 1 muestra"},
+    {"Parámetro": "Proporción de unidades que mejoraron", "Estimación": x_mej/n1,
+     "Límite inferior": ic_prop[0], "Límite superior": ic_prop[1],
+     "Amplitud": ic_prop[1]-ic_prop[0], "Método": "Wilson, 1 proporción"},
+    {"Parámetro": "Diferencia de medias transitorio − permanente (t/ha)",
+     "Estimación": g_tra.mean()-g_per.mean(),
+     "Límite inferior": ic_dif.low, "Límite superior": ic_dif.high,
+     "Amplitud": ic_dif.high-ic_dif.low, "Método": "Welch, 2 muestras"},
+]).set_index("Parámetro")
+
+R.update({"ic_media": ic_media, "m1": m1, "me_media": t1c*ee1, "ic_prop": ic_prop, "p_mej": x_mej/n1,
+          "ic_dif": (ic_dif.low, ic_dif.high), "dif_medias": g_tra.mean()-g_per.mean(),
+          "n_tra": len(g_tra), "n_per": len(g_per),
+          "m_tra": g_tra.mean(), "m_per": g_per.mean(),
+          "s_tra": g_tra.std(ddof=1), "s_per": g_per.std(ddof=1)})
+tabla_ic
+```
+
+## Row {height="55%"}
+
+::: {.card title="Pregunta y respuesta — intervalo para una muestra"}
+**Pregunta.** ¿Entre qué valores se encuentra, con 95 % de confianza, el rendimiento medio de
+las unidades municipio-cultivo de Colombia en `{python} str(ANIO_FIN)`?
+
+**Procedimiento.** Con $n$ = `{python} fmt(R["n_mu"])`, $\bar{x}$ = `{python} fmt(R["m1"],4)` y
+$t_{0,025;\,n-1}$, el intervalo es $\bar{x} \pm t\,\dfrac{s}{\sqrt{n}}$.
+
+**Respuesta.** El rendimiento medio está entre **`{python} fmt(R["ic_media"][0],2)` y
+`{python} fmt(R["ic_media"][1],2)` t/ha**. Interpretación correcta: si se repitiera el
+muestreo muchas veces, el 95 % de los intervalos construidos así contendría la media
+poblacional. No significa que haya 95 % de probabilidad de que la media esté en *este*
+intervalo, que es el error de lectura habitual.
+
+**Segunda pregunta, proporción.** ¿Qué fracción de unidades mejoró su rendimiento entre
+`{python} str(ANIO_INI)` y `{python} str(ANIO_FIN)`? La estimación puntual es
+**`{python} fmt(100*R["p_mej"],1)` %**, con intervalo de Wilson
+**[`{python} fmt(100*R["ic_prop"][0],1)` % ; `{python} fmt(100*R["ic_prop"][1],1)` %]**.
+El intervalo **contiene el 50 %**, de modo que los datos son compatibles con un escenario de
+empate: tantas unidades mejoraron como empeoraron. Se usa el método de Wilson y no la
+aproximación normal clásica porque se comporta mejor y mantiene la cobertura nominal incluso
+con proporciones alejadas de 0,5.
+:::
+
+::: {.card title="Pregunta y respuesta — intervalo para dos muestras"}
+**Pregunta.** ¿Cuánto difiere el rendimiento medio de los cultivos transitorios respecto al de
+los permanentes en `{python} str(ANIO_FIN)`?
+
+**Procedimiento.** Muestras independientes con varianzas muy desiguales
+($s_{\text{tra}}$ = `{python} fmt(R["s_tra"],2)` frente a
+$s_{\text{per}}$ = `{python} fmt(R["s_per"],2)`), por lo que se usa el intervalo de **Welch**,
+que no supone homocedasticidad. La prueba F de la página siguiente confirma formalmente esa
+desigualdad de varianzas.
+
+**Respuesta.** La diferencia estimada es **`{python} fmt(R["dif_medias"],2)` t/ha** a favor de
+los transitorios, con intervalo **[`{python} fmt(R["ic_dif"][0],2)` ;
+`{python} fmt(R["ic_dif"][1],2)`] t/ha**. Como el intervalo **no contiene el cero**, la
+diferencia de medias es significativa al 5 %: los cultivos transitorios rinden en promedio
+más toneladas por hectárea que los permanentes.
+
+**Advertencia de interpretación.** Este resultado vale para las **medias**. La página de
+contrastes mostrará que la prueba no paramétrica, que compara distribuciones completas y no
+promedios, llega a una conclusión distinta. La razón es que la diferencia de medias está
+sostenida por un grupo reducido de transitorios de rendimiento muy alto, no por un
+desplazamiento general de la distribución.
+:::
+
+# Hipótesis: una muestra
+
+## Row {height="45%"}
+
+```{python}
+#| label: h1muestra
+#| title: "Contrastes para media, proporción y varianza"
+#| tbl-cap: "Pruebas de hipótesis para una muestra: contraste de la media del rendimiento contra la meta política de 10 t/ha, prueba de proporción (mejora vs. no mejora), y contraste de varianza. Se reportan estadísticos, grados de libertad y valores-p bilaterales."
+
+# (1) MEDIA -- H0: mu = 10 t/ha (referencia de política sectorial)
+MU0 = 10.0
+t_media = stats.ttest_1samp(r_fin, MU0)
+
+# (2) PROPORCION -- H0: p = 0,5 (tantas unidades mejoran como empeoran)
+P0 = 0.50
+z_prop, p_prop = proportions_ztest(x_mej, n1, value=P0, prop_var=P0)
+
+# (3) VARIANZA -- H0: sigma^2 = 100 (desviación de referencia 10 t/ha)
+SIGMA0_2 = 100.0
+s2 = r_fin.var(ddof=1)
+chi_var = (n1 - 1) * s2 / SIGMA0_2
+p_var = 2 * min(stats.chi2.cdf(chi_var, n1-1), stats.chi2.sf(chi_var, n1-1))
+
+tabla_h1 = pd.DataFrame([
+    {"Prueba": "t de Student para la media", "H₀": f"μ = {MU0:g} t/ha", "H₁": f"μ ≠ {MU0:g}",
+     "Estadístico": t_media.statistic, "gl": f"{n1-1:,}".replace(",", "."), "valor-p": t_media.pvalue,
+     "Decisión": "Rechazar H₀" if t_media.pvalue < ALFA else "No rechazar H₀"},
+    {"Prueba": "z para una proporción", "H₀": f"p = {P0}", "H₁": f"p ≠ {P0}",
+     "Estadístico": z_prop, "gl": "—", "valor-p": p_prop,
+     "Decisión": "Rechazar H₀" if p_prop < ALFA else "No rechazar H₀"},
+    {"Prueba": "χ² para la varianza", "H₀": f"σ² = {SIGMA0_2:g}", "H₁": f"σ² ≠ {SIGMA0_2:g}",
+     "Estadístico": chi_var, "gl": f"{n1-1:,}".replace(",", "."), "valor-p": p_var,
+     "Decisión": "Rechazar H₀" if p_var < ALFA else "No rechazar H₀"},
+]).set_index("Prueba")
+
+R.update({"t_media": t_media.statistic, "p_media": t_media.pvalue, "MU0": MU0,
+          "z_prop": z_prop, "p_prop": p_prop, "chi_var": chi_var, "p_var": p_var,
+          "s2": s2, "s": np.sqrt(s2)})
+tabla_h1
+```
+
+## Row {height="55%"}
+
+::: {.card title="Media — desarrollo del contraste"}
+**Marco conceptual.** $H_0: \mu$ = `{python} fmt(R["MU0"],0)` t/ha frente a
+$H_1: \mu \neq$ `{python} fmt(R["MU0"],0)`, bilateral, con $\alpha = 0,05$. El valor de
+referencia de 10 t/ha corresponde al orden de magnitud que se maneja como meta agregada en la
+discusión sectorial; sirve aquí como punto de comparación explícito.
+
+**Supuestos.** Independencia entre unidades, garantizada por el muestreo aleatorio.
+Normalidad de la variable: **no se cumple**, pero con $n$ = `{python} fmt(R["n_mu"])` el
+teorema del límite central hace que la distribución muestral de $\bar{x}$ sea aproximadamente
+normal, de modo que la prueba es válida de forma aproximada.
+
+**Estadístico.**
+$t = \dfrac{\bar{x} - \mu_0}{s/\sqrt{n}}$ = `{python} fmt(R["t_media"],4)` con
+`{python} fmt(R["n_mu"]-1)` grados de libertad.
+
+**Decisión.** valor-p `{python} p_txt(R["p_media"])`, mayor que 0,05, por lo tanto
+**`{python} decision(R["p_media"])`**.
+
+**Conclusión en contexto.** No hay evidencia suficiente para afirmar que el rendimiento medio
+nacional en `{python} str(ANIO_FIN)` difiera de 10 t/ha. Coherente con el intervalo de
+confianza de la página anterior, que contiene ese valor. Errores tipo I y II: al no rechazar,
+el riesgo relevante es el **error tipo II** —no detectar una diferencia real—; el margen de
+error alcanzado con este tamaño muestral es de `{python} fmt(R["me_media"],2)` t/ha, de modo
+que desviaciones respecto de $\mu_0$ menores que esa magnitud no serían detectables.
+:::
+
+::: {.card title="Proporción y varianza — desarrollo de los contrastes"}
+**Proporción.** $H_0: p = 0,5$ frente a $H_1: p \neq 0,5$, donde $p$ es la proporción de
+unidades que mejoraron su rendimiento. Supuesto de aproximación normal: se cumple con holgura,
+pues $np_0$ = `{python} fmt(R["n_mu"]*0.5,0)` y $n(1-p_0)$ superan ampliamente el umbral de 10.
+Estadístico $z$ = `{python} fmt(R["z_prop"],4)`, valor-p `{python} p_txt(R["p_prop"])`:
+**`{python} decision(R["p_prop"])`**.
+
+Sustantivamente: el balance entre unidades que mejoraron y unidades que empeoraron es
+compatible con un reparto equilibrado. A nivel de conteo simple, el campo colombiano no
+muestra un avance mayoritario ni un retroceso mayoritario entre `{python} str(ANIO_INI)` y
+`{python} str(ANIO_FIN)`.
+
+**Varianza.** $H_0: \sigma^2$ = `{python} fmt(SIGMA0_2,0)` frente a
+$H_1: \sigma^2 \neq$ `{python} fmt(SIGMA0_2,0)` (equivale a contrastar una desviación de
+referencia de 10 t/ha). Estadístico
+$\chi^2 = \dfrac{(n-1)s^2}{\sigma_0^2}$ = `{python} fmt(R["chi_var"],2)` con
+`{python} fmt(R["n_mu"]-1)` grados de libertad; valor-p `{python} p_txt(R["p_var"])`:
+**`{python} decision(R["p_var"])`**.
+
+La varianza muestral es $s^2$ = `{python} fmt(R["s2"],1)`, es decir
+$s$ = `{python} fmt(R["s"],2)` t/ha, superior a la referencia. **Advertencia metodológica
+importante:** esta prueba es muy sensible al incumplimiento del supuesto de normalidad, que
+aquí se rechazó de forma contundente. Con colas tan pesadas, el estadístico $\chi^2$ se infla
+y el valor-p resulta artificialmente pequeño. La conclusión defendible no es el valor-p en sí,
+sino la magnitud observada: la dispersión del rendimiento entre unidades municipio-cultivo es
+muy alta, con una desviación estándar del orden de la propia media.
+:::
+
+# Hipótesis: dos muestras
+
+## Row {height="42%"}
+
+```{python}
+#| label: h2muestras
+#| title: "Medias pareadas, medias independientes, proporciones y razón de varianzas"
+#| tbl-cap: "Resumen de cinco contrastes de hipótesis: media pareada (rendimiento 2018 vs. 2024), media independiente (transitorio vs. permanente), razón de varianzas, diferencia de proporciones (mejora según ciclo), y su alternativa no paramétrica. Se reportan tanto la prueba paramétrica como la no paramétrica cuando aplica."
+
+# (1) PAREADAS: mismo municipio-cultivo en 2018 y 2024
+t_par = stats.ttest_rel(r_fin, r_ini)
+d_par = r_fin - r_ini
+w_par = stats.wilcoxon(r_fin, r_ini)                       # alternativa no paramétrica
+
+# (2) INDEPENDIENTES: transitorio vs permanente en 2024
+t_ind = stats.ttest_ind(g_tra, g_per, equal_var=False)     # Welch
+mw_ind = stats.mannwhitneyu(g_tra, g_per, alternative="two-sided")
+
+# (3) RAZON DE VARIANZAS: F
+F = g_tra.var(ddof=1) / g_per.var(ddof=1)
+gl1, gl2 = len(g_tra)-1, len(g_per)-1
+p_F = 2 * min(stats.f.cdf(F, gl1, gl2), stats.f.sf(F, gl1, gl2))
+
+# (4) DIFERENCIA DE PROPORCIONES: mejora según ciclo
+tab_ciclo = mu.groupby("ciclo").mejoro.agg(["sum", "count"])
+z_2p, p_2p = proportions_ztest(tab_ciclo["sum"].values, tab_ciclo["count"].values)
+
+tabla_h2 = pd.DataFrame([
+    {"Prueba": "t pareada (2024 − 2018)", "Tipo": "Paramétrica",
+     "Estadístico": t_par.statistic, "valor-p": t_par.pvalue,
+     "Decisión": "Rechazar H₀" if t_par.pvalue < ALFA else "No rechazar H₀"},
+    {"Prueba": "Wilcoxon de rangos con signo", "Tipo": "No paramétrica",
+     "Estadístico": w_par.statistic, "valor-p": w_par.pvalue,
+     "Decisión": "Rechazar H₀" if w_par.pvalue < ALFA else "No rechazar H₀"},
+    {"Prueba": "t de Welch (transitorio vs permanente)", "Tipo": "Paramétrica",
+     "Estadístico": t_ind.statistic, "valor-p": t_ind.pvalue,
+     "Decisión": "Rechazar H₀" if t_ind.pvalue < ALFA else "No rechazar H₀"},
+    {"Prueba": "Mann-Whitney U", "Tipo": "No paramétrica",
+     "Estadístico": mw_ind.statistic, "valor-p": mw_ind.pvalue,
+     "Decisión": "Rechazar H₀" if mw_ind.pvalue < ALFA else "No rechazar H₀"},
+    {"Prueba": "F de razón de varianzas", "Tipo": "Paramétrica",
+     "Estadístico": F, "valor-p": p_F,
+     "Decisión": "Rechazar H₀" if p_F < ALFA else "No rechazar H₀"},
+    {"Prueba": "z de diferencia de proporciones", "Tipo": "Paramétrica",
+     "Estadístico": z_2p, "valor-p": p_2p,
+     "Decisión": "Rechazar H₀" if p_2p < ALFA else "No rechazar H₀"},
+]).set_index("Prueba")
+
+# Estimador de Hodges-Lehmann del desplazamiento pareado
+walsh = (d_par[:, None] + d_par[None, :]) / 2
+hl = float(np.median(walsh[np.triu_indices(len(d_par))]))
+
+R.update({"t_par": t_par.statistic, "p_par": t_par.pvalue,
+          "w_par": w_par.statistic, "p_w": w_par.pvalue,
+          "t_ind": t_ind.statistic, "p_ind": t_ind.pvalue,
+          "mw": mw_ind.statistic, "p_mw": mw_ind.pvalue,
+          "F": F, "p_F": p_F, "gl1": gl1, "gl2": gl2,
+          "z_2p": z_2p, "p_2p": p_2p, "hl": hl,
+          "d_media": d_par.mean(), "d_mediana": float(np.median(d_par)),
+          "n_pos": int((d_par > 0).sum()), "n_neg": int((d_par < 0).sum()),
+          "n_cero": int((d_par == 0).sum()),
+          "p_tra": tab_ciclo.loc["TRANSITORIO","sum"]/tab_ciclo.loc["TRANSITORIO","count"],
+          "p_per": tab_ciclo.loc["PERMANENTE","sum"]/tab_ciclo.loc["PERMANENTE","count"]})
+display(tabla_h2)
+tab_ciclo.rename(columns={"sum": "Mejoraron", "count": "Total"}).assign(
+    **{"% que mejora": lambda t: (100*t["Mejoraron"]/t["Total"]).round(2)})
+```
+
+## Row {height="58%"}
+
+::: {.card title="Muestras pareadas — el resultado central del estudio"}
+**Hipótesis.** $H_0: \mu_d = 0$ frente a $H_1: \mu_d \neq 0$, donde
+$d_i = \text{rendimiento}_{2024,i} - \text{rendimiento}_{2018,i}$ para la misma unidad
+municipio-cultivo.
+
+**Supuestos.** El pareamiento está garantizado por construcción. La normalidad de las
+diferencias **se rechazó** en la página de normalidad, de modo que se ejecutan las dos pruebas.
+
+**Resultados y la discrepancia entre ellas.**
+
+| | Estadístico | valor-p | Decisión |
+|---|---|---|---|
+| t pareada | `{python} fmt(R["t_par"],4)` | `{python} fmt(R["p_par"],4)` | `{python} "Rechazar" if R["p_par"]<ALFA else "No rechazar"` |
+| Wilcoxon | `{python} fmt(R["w_par"],0)` | `{python} fmt(R["p_w"],4)` | `{python} "Rechazar" if R["p_w"]<ALFA else "No rechazar"` |
+
+Las dos pruebas **no coinciden**, y entender por qué es lo más informativo del análisis. La
+diferencia media es apenas `{python} fmt(R["d_media"],4)` t/ha: las subidas y las bajadas
+extremas se cancelan, de modo que la prueba $t$ —que se basa en la media— no encuentra nada.
+La prueba de Wilcoxon no promedia magnitudes sino que ordena y suma rangos con signo, y ahí sí
+aparece una asimetría sistemática: **`{python} fmt(R["n_pos"])` unidades mejoraron frente a
+`{python} fmt(R["n_neg"])` que empeoraron** (`{python} fmt(R["n_cero"])` no cambiaron).
+
+**Decisión.** Se privilegia la prueba de Wilcoxon, porque es la válida bajo el incumplimiento
+de normalidad que se documentó: **se rechaza $H_0$**. El estimador de Hodges-Lehmann sitúa el
+desplazamiento en **`{python} fmt(R["hl"],3)` t/ha**.
+
+**Conclusión en contexto.** Hubo una mejora del rendimiento entre `{python} str(ANIO_INI)` y
+`{python} str(ANIO_FIN)`, pero es **estadísticamente detectable y sustantivamente pequeña**:
+un desplazamiento de unas décimas de tonelada por hectárea sobre un nivel medio cercano a las
+10 t/ha, es decir, del orden del 1 %. La significancia estadística aquí proviene de la
+consistencia del signo en muchas unidades, no de la magnitud del cambio. Es un caso de manual
+de por qué el valor-p debe acompañarse siempre del tamaño del efecto.
+:::
+
+::: {.card title="Muestras independientes, proporciones y varianzas"}
+**Transitorios frente a permanentes.** $H_0: \mu_1 = \mu_2$ contra $H_1: \mu_1 \neq \mu_2$.
+La prueba de Welch da $t$ = `{python} fmt(R["t_ind"],4)` con valor-p
+`{python} p_txt(R["p_ind"])`: **`{python} decision(R["p_ind"])`**. Mann-Whitney da
+$U$ = `{python} fmt(R["mw"],0)` con valor-p `{python} p_txt(R["p_mw"])`:
+**`{python} decision(R["p_mw"])`**.
+
+Otra vez discrepan, y por la misma razón invertida: las **medias** difieren
+(`{python} fmt(R["m_tra"],2)` frente a `{python} fmt(R["m_per"],2)` t/ha) porque un grupo
+pequeño de transitorios alcanza rendimientos muy altos, pero las **distribuciones completas**
+no están desplazadas una respecto de la otra. La conclusión honesta: el cultivo transitorio
+típico no rinde más que el permanente típico; lo que ocurre es que los rendimientos
+excepcionalmente altos se concentran en los transitorios.
+
+**Razón de varianzas.** $H_0: \sigma_1^2 = \sigma_2^2$. El estadístico
+$F$ = `{python} fmt(R["F"],4)` con `{python} fmt(R["gl1"])` y `{python} fmt(R["gl2"])`
+grados de libertad y valor-p `{python} p_txt(R["p_F"])`: **`{python} decision(R["p_F"])`**.
+La varianza de los transitorios más que triplica la de los permanentes, lo que valida a
+posteriori haber usado Welch en lugar de la $t$ agrupada. Igual que con la prueba $\chi^2$
+para una varianza, conviene recordar que la $F$ es sensible a la no normalidad, de modo que se
+lee como confirmación de una diferencia ya visible en el diagrama de caja.
+
+**Diferencia de proporciones.** $H_0: p_1 = p_2$, donde $p_i$ es la proporción de unidades que
+mejoraron dentro de cada ciclo. Resultado: transitorios
+`{python} fmt(100*R["p_tra"],1)` % frente a permanentes `{python} fmt(100*R["p_per"],1)` %,
+con $z$ = `{python} fmt(R["z_2p"],4)` y valor-p `{python} p_txt(R["p_2p"])`:
+**`{python} decision(R["p_2p"])`**.
+
+Este es un hallazgo con lectura sectorial clara: **los cultivos transitorios mejoraron con
+mayor frecuencia que los permanentes**. Tiene sentido agronómico, porque un cultivo
+transitorio se resiembra cada semestre y puede incorporar material genético y prácticas
+nuevas en cada ciclo, mientras que un cultivo permanente arrastra durante años las decisiones
+de establecimiento.
+:::
+
+# Independencia
+
+## Row {height="45%"}
+
+```{python}
+#| label: chi2
+#| title: "Prueba chi-cuadrado de independencia: región × mejora del rendimiento"
+#| tbl-cap: "Tabla de contingencia (frecuencias observadas), frecuencias esperadas bajo independencia, y residuos estandarizados para la asociación entre región natural y mejora del rendimiento 2018-2024. La V de Cramér cuantifica la fuerza de la asociación."
+
+obs = pd.crosstab(mu.region, mu.mejoro.map({0: "No mejoró", 1: "Mejoró"}))
+chi2, p_chi, gl_chi, esp = stats.chi2_contingency(obs)
+esp_df = pd.DataFrame(esp, index=obs.index, columns=obs.columns).round(2)
+
+# V de Cramér y su interpretación
+k = min(obs.shape) - 1
+V = np.sqrt(chi2 / (obs.values.sum() * k))
+# Contribución de cada celda al estadístico (residuos estandarizados)
+resid = (obs.values - esp) / np.sqrt(esp)
+
+resid_df = pd.DataFrame(resid, index=obs.index, columns=obs.columns)
+celda_max = resid_df.abs().stack().idxmax()
+R.update({"chi2": chi2, "p_chi": p_chi, "gl_chi": gl_chi, "V": V,
+          "esp_min": esp.min(), "celdas_bajo5": int((esp < 5).sum()),
+          "reg_max": celda_max[0], "col_max": celda_max[1],
+          "resid_max": resid_df.loc[celda_max]})
+
+from IPython.display import display as _display, HTML
+_display(HTML("<strong>Frecuencias observadas</strong>"))
+display(obs.assign(Total=obs.sum(axis=1)))
+_display(HTML("<strong>Frecuencias esperadas</strong>"))
+display(esp_df)
+_display(HTML("<strong>Residuos estandarizados</strong>"))
+pd.DataFrame(resid.round(3), index=obs.index, columns=[f"Residuo {c}" for c in obs.columns])
+```
+
+```{python}
+#| label: chi2-complemento
+#| title: "Contraste complementario: región × ciclo del cultivo"
+#| tbl-cap: "Tabla de contingencia de región × ciclo de cultivo. Complementa el análisis de independencia mostrando cómo se distribuyen los cultivos transitorios y permanentes por región, con énfasis en la V de Cramér para la fuerza de asociación."
+
+obs2 = pd.crosstab(mu.region, mu.ciclo)
+chi2b, p_chib, glb, espb = stats.chi2_contingency(obs2)
+Vb = np.sqrt(chi2b / (obs2.values.sum() * (min(obs2.shape) - 1)))
+R.update({"chi2b": chi2b, "p_chib": p_chib, "glb": glb, "Vb": Vb, "espb_min": espb.min()})
+from IPython.display import display as _display, HTML
+_display(HTML("<strong>Tabla de contingencia: región × ciclo</strong>"))
+display(obs2)
+_display(HTML("<strong>Resumen del contraste chi-cuadrado</strong>"))
+pd.DataFrame({"Estadístico": ["χ²", "gl", "valor-p", "V de Cramér", "Mínima frecuencia esperada"],
+              "Valor": [_f(chi2b), str(glb), _f(p_chib), _f(Vb), _f(espb.min())]}).set_index("Estadístico")
+```
+
+## Row {height="55%"}
+
+::: {.card title="Desarrollo del contraste principal"}
+**Hipótesis.** $H_0$: la región natural y la mejora del rendimiento son **independientes**.
+$H_1$: existe asociación entre ambas.
+
+**Verificación del supuesto.** Todas las frecuencias esperadas deben ser mayores o iguales a
+5. La mínima observada es **`{python} fmt(R["esp_min"],2)`** y hay
+`{python} fmt(R["celdas_bajo5"])` celdas por debajo de 5, de modo que **el supuesto se
+cumple** y no hace falta agrupar categorías ni recurrir a la prueba exacta de Fisher.
+
+**Estadístico.**
+$\chi^2 = \sum \dfrac{(O_{ij}-E_{ij})^2}{E_{ij}}$ = `{python} fmt(R["chi2"],4)` con
+$gl = (f-1)(c-1)$ = `{python} fmt(R["gl_chi"])`.
+
+**Decisión.** valor-p = `{python} fmt(R["p_chi"],4)`, por lo tanto
+**`{python} decision(R["p_chi"])`** al 5 %.
+
+**Tamaño del efecto.** $V = \sqrt{\dfrac{\chi^2}{n\,\min(f-1,c-1)}}$ = `{python} fmt(R["V"],4)`.
+Un valor de V por debajo de 0,10 corresponde a una asociación despreciable aun cuando el
+contraste resultara significativo.
+
+**Conclusión en contexto.** No hay evidencia suficiente para afirmar que la probabilidad de
+mejorar el rendimiento dependa de la región natural. El resultado queda cerca del umbral
+—conviene reportarlo como tal y no como una independencia rotunda— pero la V de Cramér
+despeja la duda sustantiva: incluso si con más datos el contraste llegara a ser significativo,
+la asociación sería demasiado débil para tener relevancia práctica. La lectura de los residuos
+estandarizados apunta en la misma dirección: la mayor desviación se da en la región
+`{python} R["reg_max"]` en la categoría «`{python} R["col_max"]`», con un residuo de
+`{python} fmt(R["resid_max"],2)`, magnitud que ni siquiera alcanza el umbral convencional de
+±2 a partir del cual una celda se considera discrepante.
+
+**Contraste complementario.** La tabla región × ciclo sí resulta significativa
+($\chi^2$ = `{python} fmt(R["chi2b"],2)`, valor-p `{python} p_txt(R["p_chib"])`), con
+$V$ = `{python} fmt(R["Vb"],4)`. Es decir: **la composición de cultivos sí varía entre
+regiones** —lo esperable, por clima y vocación productiva— aunque la mejora del rendimiento no
+siga ese mismo patrón regional. La comparación entre ambas tablas refuerza el hallazgo
+principal: lo que explica la mejora es el tipo de cultivo, no el lugar.
+:::
+
+# Regresión
+
+## Row {height="45%"}
+
+```{python}
+#| label: regresion
+#| title: "Regresión lineal simple: producción en función del área cosechada"
+#| tbl-cap: "Modelo OLS de mínimos cuadrados: producción (t) explicada por área cosechada (ha) en 2024. Se reportan coeficientes, errores estándar, valores-t, valores-p, suma de cuadrados y R². El intercepto carece de interpretación (área 0). La elasticidad en escala log-log captura rendimientos decrecientes a escala."
+
+x = mu.cosechada_fin.values
+y = mu.produccion_fin.values
+X = sm.add_constant(x)
+mod = sm.OLS(y, X).fit()
+b0, b1 = mod.params
+r_p, p_r = stats.pearsonr(x, y)
+cov_xy = np.cov(x, y, ddof=1)[0, 1]
+
+# Sumas de cuadrados
+SCT = float(((y - y.mean())**2).sum())
+SCR = float(((mod.fittedvalues - y.mean())**2).sum())   # explicada por la regresión
+SCE = float((mod.resid**2).sum())                       # residual
+Se = float(np.sqrt(SCE / (len(y) - 2)))
+ic_b = mod.conf_int(alpha=ALFA)
+
+tabla_reg = pd.DataFrame({
+    "Medida": ["Covarianza", "Correlación de Pearson r", "Coef. determinación R²",
+               "b₀ (intercepto)", "b₁ (pendiente)", "SCT", "SCR", "SCE",
+               "Error estándar de estimación Sₑ"],
+    "Valor": [cov_xy, r_p, mod.rsquared, b0, b1, SCT, SCR, SCE, Se]}).set_index("Medida")
+
+tabla_inf = pd.DataFrame({
+    "Contraste": ["t para β₁ = 0", "F global del modelo", "t para ρ = 0"],
+    "Estadístico": [mod.tvalues[1], mod.fvalue, r_p*np.sqrt((len(y)-2)/(1-r_p**2))],
+    "gl": [f"{len(y)-2:,}".replace(",", "."), f"(1, {len(y)-2})",
+           f"{len(y)-2:,}".replace(",", ".")],
+    "valor-p": [mod.pvalues[1], mod.f_pvalue, p_r],
+    "IC 95% inferior": [_f(ic_b[1][0]), "—", "—"],
+    "IC 95% superior": [_f(ic_b[1][1]), "—", "—"]}).set_index("Contraste")
+
+R.update({"b0": b0, "b1": b1, "r": r_p, "cov_xy": cov_xy, "R2": mod.rsquared, "SCT": SCT, "SCR": SCR,
+          "SCE": SCE, "Se": Se, "F_reg": mod.fvalue, "p_F_reg": mod.f_pvalue,
+          "t_b1": mod.tvalues[1], "p_b1": mod.pvalues[1],
+          "ic_b0": (ic_b[0][0], ic_b[0][1]), "ic_b1": (ic_b[1][0], ic_b[1][1])})
+from IPython.display import display as _display, HTML
+_display(HTML("<strong>Parámetros del modelo lineal</strong>"))
+display(tabla_reg)
+_display(HTML("<strong>Contrastes e intervalos de confianza</strong>"))
+tabla_inf
+```
+
+```{python}
+#| label: diagnostico
+#| title: "Verificación de supuestos y modelo alternativo log-log"
+#| tbl-cap: "Diagnósticos de supuestos en regresión lineal: Shapiro-Wilk (normalidad de residuos), Breusch-Pagan (homocedasticidad) y Durbin-Watson (autocorrelación). Se reportan también los resultados del modelo alternativo en escala logarítmica (elasticidad) con su R² comparativo."
+
+res = mod.resid
+sw_res = stats.shapiro(res[:5000])
+bp_res = sms.het_breuschpagan(res, mod.model.exog)
+dw = sm.stats.durbin_watson(res)
+
+# Modelo alternativo sobre escala logarítmica
+xl, yl = np.log(x), np.log(y)
+mod_l = sm.OLS(yl, sm.add_constant(xl)).fit()
+res_l = mod_l.resid
+bp_l = sms.het_breuschpagan(res_l, mod_l.model.exog)
+ic_l = mod_l.conf_int(alpha=ALFA)
+
+diag_sup = pd.DataFrame({
+    "Supuesto": ["Linealidad", "Independencia (Durbin-Watson)",
+                 "Homocedasticidad (Breusch-Pagan)", "Normalidad de residuos (Shapiro-Wilk)"],
+    "Estadístico": ["Inspección gráfica", round(dw, 4), round(bp_res[0], 2), round(sw_res.statistic, 4)],
+    "valor-p": ["—", "—", bp_res[1], sw_res.pvalue],
+    "Modelo lineal": ["Aproximada", "Se cumple", "NO se cumple", "NO se cumple"],
+    "Modelo log-log": ["Se cumple", "Se cumple",
+                       "Mejora sustancialmente", "NO se cumple"]}).set_index("Supuesto")
+
+R.update({"dw": dw, "bp_p": bp_res[1], "sw_res_p": sw_res.pvalue,
+          "b1_l": mod_l.params[1], "R2_l": mod_l.rsquared, "bp_l_p": bp_l[1],
+          "ic_b1_l": (ic_l[1][0], ic_l[1][1])})
+from IPython.display import display as _display, HTML
+_display(HTML("<strong>Verificación de supuestos</strong>"))
+display(diag_sup)
+_display(HTML("<strong>Comparación de modelos: lineal vs. log-log</strong>"))
+pd.DataFrame({
+    "Modelo": ["Lineal: producción ~ área", "Log-log: ln(producción) ~ ln(área)"],
+    "R²": [mod.rsquared, mod_l.rsquared],
+    "Pendiente": [mod.params[1], mod_l.params[1]],
+    "Breusch-Pagan valor-p": [bp_res[1], bp_l[1]]}).set_index("Modelo")
+```
+
+## Row {height="55%"}
+
+```{python}
+#| label: fig-regresion
+#| title: "Diagrama de dispersión, recta ajustada e intervalos"
+#| fig-cap: "Relación entre área cosechada y producción: (izquierda) regresión lineal con intervalo de confianza 95 % para la respuesta media e intervalo de predicción 95 %; (centro) transformación logarítmica con elasticidad interpretable; (derecha) análisis de residuos del modelo lineal con histograma y Q-Q plot."
+def _grafico():
+    fig, axes = plt.subplots(1, 3, figsize=(11.5, 3.3))
+
+    # (a) dispersión con recta, IC de la respuesta media e IC de predicción
+    orden = np.argsort(x)
+    xs = x[orden]
+    pred = mod.get_prediction(sm.add_constant(xs))
+    sf = pred.summary_frame(alpha=ALFA)
+    lim = np.quantile(x, .97)
+    axes[0].scatter(x, y, s=6, alpha=.25, color=C1)
+    axes[0].plot(xs, sf["mean"], color="#B23A48", lw=1.8, label="Recta ajustada")
+    axes[0].fill_between(xs, sf["mean_ci_lower"], sf["mean_ci_upper"], color="#B23A48",
+                         alpha=.35, label="IC 95% respuesta media")
+    axes[0].plot(xs, sf["obs_ci_lower"], ":", color="#666", lw=1, label="IC 95% predicción")
+    axes[0].plot(xs, sf["obs_ci_upper"], ":", color="#666", lw=1)
+    axes[0].set_xlim(0, lim); axes[0].set_ylim(0, np.quantile(y, .97))
+    axes[0].set_xlabel("Área cosechada (ha)"); axes[0].set_ylabel("Producción (t)")
+    axes[0].set_title("Modelo lineal"); axes[0].legend(fontsize=6.5)
+
+    # (b) residuos vs ajustados
+    axes[1].scatter(mod.fittedvalues, res, s=6, alpha=.25, color=C2)
+    axes[1].axhline(0, color="#B23A48", lw=1.2)
+    axes[1].set_xlim(0, np.quantile(mod.fittedvalues, .97))
+    axes[1].set_xlabel("Valores ajustados"); axes[1].set_ylabel("Residuos")
+    axes[1].set_title("Residuos: heterocedasticidad en abanico")
+
+    # (c) modelo log-log
+    axes[2].scatter(xl, yl, s=6, alpha=.25, color=C3)
+    xg = np.linspace(xl.min(), xl.max(), 100)
+    axes[2].plot(xg, mod_l.params[0] + mod_l.params[1]*xg, color="#B23A48", lw=1.8)
+    axes[2].set_xlabel("ln(área cosechada)"); axes[2].set_ylabel("ln(producción)")
+    axes[2].set_title(f"Modelo log-log (R² = {mod_l.rsquared:.3f})")
+    plt.tight_layout(); plt.show()
+
+_grafico()
+from IPython.display import HTML
+display(HTML("<p style='margin-top:20px; font-style:italic; color:#333;'><strong>Conclusión:</strong> El modelo lineal muestra heterocedasticidad clara (varianza en abanico), lo que invalida los intervalos de confianza estándar. El modelo log-log mejora sustancialmente la homocedasticidad (R² = 0,624 vs. 0,551) e indica elasticidad 0,88: duplicar el área aumenta la producción apenas 88 %, sugiriendo rendimientos decrecientes a escala.</p>"))
+```
+
+::: {.card title="Interpretación del modelo"}
+**Parte descriptiva.** La covarianza es positiva
+(`{python} fmt(R["cov_xy"], 1)`), lo que indica que área y
+producción se mueven en el mismo sentido, aunque su magnitud no es interpretable por depender
+de las unidades. La correlación de Pearson, $r$ = `{python} fmt(R["r"],4)`, es la versión
+estandarizada: asociación positiva moderada-alta. El coeficiente de determinación
+$R^2$ = `{python} fmt(R["R2"],4)` indica que el área cosechada explica el
+`{python} fmt(100*R["R2"],1)` % de la variabilidad de la producción; el resto corresponde a
+las diferencias de rendimiento entre cultivos, que el modelo no incorpora.
+
+**Ecuación estimada.**
+$$\hat{y} = b_0 + b_1 x$$
+
+con $b_0$ = `{python} fmt(R["b0"],2)` y $b_1$ = `{python} fmt(R["b1"],4)`, es decir
+ŷ = `{python} fmt(R["b0"],2)` + `{python} fmt(R["b1"],4)` · x.
+La pendiente dice que cada hectárea adicional cosechada se asocia con
+**`{python} fmt(R["b1"],2)` toneladas más** de producción. El intercepto
+`{python} fmt(R["b0"],2)` t no tiene interpretación sustantiva: corresponde a un área
+cosechada de cero hectáreas, fuera del rango observado.
+
+**Descomposición de la variabilidad.**
+$SCT = SCR + SCE$, con $SCR$ = `{python} fmt(R["SCR"],0)` (explicada) y
+$SCE$ = `{python} fmt(R["SCE"],0)` (residual). El error estándar de la estimación es
+$S_e$ = `{python} fmt(R["Se"],1)` t.
+
+**Parte inferencial.** La prueba $t$ sobre la pendiente da
+$t$ = `{python} fmt(R["t_b1"],2)` con valor-p `{python} p_txt(R["p_b1"])`, y la prueba $F$
+global $F$ = `{python} fmt(R["F_reg"],1)` con valor-p `{python} p_txt(R["p_F_reg"])`: en ambos
+casos **se rechaza $H_0: \beta_1 = 0$**. El intervalo de confianza de la pendiente es
+[`{python} fmt(R["ic_b1"][0],3)` ; `{python} fmt(R["ic_b1"][1],3)`] y no contiene el cero.
+El contraste sobre $\rho$ conduce a la misma conclusión, como es de esperar: en regresión
+simple las tres pruebas son algebraicamente equivalentes.
+
+**Supuestos LINE y por qué importa.** Linealidad y no autocorrelación se cumplen
+($DW$ = `{python} fmt(R["dw"],3)`, muy cerca de 2). **Homocedasticidad y normalidad de los
+residuos no se cumplen**: Breusch-Pagan arroja un valor-p `{python} p_txt(R["bp_p"])` y el gráfico de
+residuos muestra el abanico característico —a mayor área, mayor dispersión del error—. La
+consecuencia concreta no es que los coeficientes estén sesgados, que no lo están, sino que
+**los errores estándar y por tanto los intervalos de confianza y los valores-p del modelo
+lineal no son fiables**.
+
+**Remedio y lectura final.** El modelo en escala logarítmica corrige buena parte del problema:
+sube el $R^2$ a `{python} fmt(R["R2_l"],4)` y reduce drásticamente la heterocedasticidad. Su
+pendiente, `{python} fmt(R["b1_l"],4)` con intervalo
+[`{python} fmt(R["ic_b1_l"][0],3)` ; `{python} fmt(R["ic_b1_l"][1],3)`], se interpreta como
+**elasticidad**: un aumento del 1 % en el área cosechada se asocia con un aumento de
+`{python} fmt(R["b1_l"],2)` % en la producción. Como es menor que 1 y su intervalo excluye
+el 1, hay indicio de **rendimientos ligeramente decrecientes a escala**: las unidades con más
+área producen proporcionalmente algo menos por hectárea.
+:::
+
+# Discusión
+
+## Row
+
+::: {.card title="Comparación con la literatura revisada"}
+**Sobre la magnitud del cambio.** El desplazamiento estimado por Hodges-Lehmann,
+`{python} fmt(R["hl"],3)` t/ha en seis años, es compatible con lo que reporta la literatura de
+brecha de rendimiento: los avances de productividad por hectárea son lentos y no se producen
+por saltos tecnológicos súbitos, sino por acumulación de mejoras de manejo
+(van Ittersum et al., 2013). El resultado de este trabajo añade un matiz: la mejora existe y
+es consistente en signo, pero su magnitud es marginal frente al nivel del indicador.
+
+**Sobre la dispersión.** El coeficiente de variación superior a 1 y la curtosis en exceso de
+`{python} fmt(R["curt_fin"],1)` confirman empíricamente lo que Arango-Londoño et al. (2020)
+documentaron para el arroz: dentro de un mismo territorio conviven unidades productivas con
+rendimientos muy distintos. Que en este estudio la región natural **no** resulte asociada a la
+probabilidad de mejorar ($V$ = `{python} fmt(R["V"],3)`) refuerza su tesis de que la brecha se
+explica por el manejo de cada unidad antes que por la ubicación geográfica.
+
+**Sobre la variabilidad intermunicipal frente a la interanual.** Sánchez Pineda et al. (2024)
+señalaron que la variación entre municipios domina sobre la variación entre años. Este trabajo
+lo cuantifica de forma directa: la desviación estándar entre unidades en un mismo año
+(`{python} fmt(R["s"],2)` t/ha) es un orden de magnitud mayor que el cambio mediano entre 2018
+y 2024. La implicación de política es concreta: cerrar la brecha interna tiene más recorrido
+que esperar una mejora generalizada en el tiempo.
+
+**Sobre el tipo de cultivo.** El hallazgo de que los transitorios mejoran con mayor frecuencia
+(`{python} fmt(100*R["p_tra"],1)` % frente a `{python} fmt(100*R["p_per"],1)` %) no aparece
+explícitamente en los antecedentes revisados y constituye el aporte propio de este trabajo.
+Es consistente con el diagnóstico estructural de Castaño Giraldo y Cardona Gómez (2013): los
+cultivos permanentes exigen inversión de establecimiento a varios años, y en un contexto de
+costos de producción altos y crédito escaso esa renovación se aplaza.
+
+**Sobre la relación área-producción.** La elasticidad estimada de
+`{python} fmt(R["b1_l"],3)`, menor que 1, sugiere rendimientos ligeramente decrecientes a
+escala. Esto conversa con el hallazgo de Rico et al. (2024) sobre el papel del uso del suelo:
+en Colombia la expansión del área no se traduce proporcionalmente en producción, de modo que
+la estrategia de crecer sembrando más tiene un techo.
+:::
+
+## Row
+
+::: {.card title="Interpretación conjunta frente a la pregunta de investigación"}
+La pregunta tenía tres partes. Así responde cada prueba:
+
+| Componente de la pregunta | Prueba | Respuesta |
+|---|---|---|
+| ¿Cambió el rendimiento entre 2018 y 2024? | Wilcoxon pareado (p = `{python} fmt(R["p_w"],4)`) | **Sí**, con un desplazamiento positivo de `{python} fmt(R["hl"],3)` t/ha |
+| ¿El cambio es grande? | t pareada (p = `{python} fmt(R["p_par"],3)`) y Hodges-Lehmann | **No.** La media no se mueve; el efecto es del orden del 1 % |
+| ¿Se asocia con el ciclo del cultivo? | z de dos proporciones (p = `{python} fmt(R["p_2p"],4)`) | **Sí.** Los transitorios mejoran con más frecuencia |
+| ¿Los transitorios rinden más? | Welch vs Mann-Whitney | **Solo en promedio**, no en la distribución típica |
+| ¿Se asocia con la región? | χ² (p = `{python} fmt(R["p_chi"],4)`, V = `{python} fmt(R["V"],3)`) | **No** de forma relevante |
+| ¿El área explica la producción? | Regresión (R² = `{python} fmt(R["R2"],3)`; log-log `{python} fmt(R["R2_l"],3)`) | **Parcialmente**, con elasticidad menor que 1 |
+
+**Síntesis.** El rendimiento agrícola municipal colombiano mejoró entre 2018 y 2024 de forma
+estadísticamente detectable pero sustantivamente pequeña, y esa mejora se distribuyó según el
+**tipo de cultivo** y no según la **geografía**. La respuesta completa exigió el contraste
+entre pruebas paramétricas y no paramétricas: quedarse solo con la prueba $t$ habría llevado a
+concluir que no pasó nada, y quedarse solo con el valor-p de Wilcoxon habría exagerado la
+importancia práctica del cambio. El par valor-p más tamaño del efecto es lo que permite dar
+una respuesta correcta en ambas direcciones.
+:::
+
+# Conclusiones
+
+## Row
+
+::: {.card title="Hallazgos por objetivo"}
+**Objetivo 1 — describir y verificar normalidad.** El rendimiento es marcadamente asimétrico
+(asimetría `{python} fmt(R["asim_fin"],2)`) y leptocúrtico (curtosis
+`{python} fmt(R["curt_fin"],1)`). Las cuatro pruebas de normalidad rechazan $H_0$ en todas las
+variables numéricas. Media `{python} fmt(R["media_fin"],2)` t/ha frente a mediana
+`{python} fmt(R["mediana_fin"],2)` t/ha, con coeficiente de variación
+`{python} fmt(R["cv_fin"],2)`.
+
+**Objetivo 2 — estimar por intervalos.** El rendimiento medio de `{python} str(ANIO_FIN)` está
+entre `{python} fmt(R["ic_media"][0],2)` y `{python} fmt(R["ic_media"][1],2)` t/ha. La
+diferencia entre transitorios y permanentes está entre `{python} fmt(R["ic_dif"][0],2)` y
+`{python} fmt(R["ic_dif"][1],2)` t/ha, sin contener el cero.
+
+**Objetivo 3 — contrastar el cambio.** Wilcoxon rechaza la igualdad
+(p `{python} p_txt(R["p_w"])`): `{python} fmt(R["n_pos"])` unidades mejoraron frente a
+`{python} fmt(R["n_neg"])` que empeoraron. La prueba $t$ no lo detecta porque la media queda
+neutralizada por valores extremos en ambas direcciones.
+
+**Objetivo 4 — independencia región-mejora.** No se rechaza la independencia
+(χ² = `{python} fmt(R["chi2"],2)`, p = `{python} fmt(R["p_chi"],4)`) y la V de Cramér de
+`{python} fmt(R["V"],3)` descarta una asociación relevante. En cambio, el tipo de cultivo sí
+discrimina.
+
+**Objetivo 5 — modelar.** El área cosechada explica el `{python} fmt(100*R["R2"],1)` % de la
+producción en escala original y el `{python} fmt(100*R["R2_l"],1)` % en escala logarítmica.
+La elasticidad de `{python} fmt(R["b1_l"],3)` indica rendimientos ligeramente decrecientes a
+escala.
+:::
+
+## Row
+
+::: {.card title="Limitaciones del estudio"}
+1. **Naturaleza de la fuente.** Las EVA son estimaciones de consenso de las secretarías de
+   agricultura departamentales, no un censo ni un muestreo probabilístico en campo. Su calidad
+   puede variar entre departamentos y entre años, y ese error de medición no es cuantificable
+   con los datos disponibles.
+2. **Cambio de estructura entre bases.** El conjunto 2006-2018 incluye la categoría de ciclo
+   "anual", que desaparece en el conjunto 2019-2025. Se identificaron 1.062 unidades con
+   ciclo "anual" en 2018 que pasaron a clasificarse como "transitorio" (1.059 casos) o
+   "permanente" (3 casos) en 2024. Estas unidades se conservaron usando la clasificación
+   del año final, decisión que maximiza la cobertura del análisis pareado (se retienen
+   10.815 unidades en lugar de 9.742), aunque introduce una reclasificación no verificable
+   en el campo. Los cultivos predominantes en este grupo son yuca y ñame, que
+   agronómicamente se comportan como transitorios plurianuales: su cambio de categoría es
+   plausible, pero no confirmable con los datos disponibles.
+3. **Diseño observacional.** Todas las asociaciones encontradas son correlacionales. Nada en
+   este diseño permite atribuir la mejora del rendimiento a una causa concreta.
+4. **Supervivencia de las unidades.** Solo entran las unidades presentes en ambos años. Las
+   que desaparecieron entre 2018 y 2024 —posiblemente las de peor desempeño— quedan fuera, lo
+   que puede sesgar el resultado hacia una mejora ligeramente sobrestimada.
+5. **Multiplicidad de contrastes.** Se ejecutaron más de diez pruebas con
+   $\alpha = 0,05$ sin corrección. Los resultados cercanos al umbral, como el χ² de región,
+   deben leerse con esa cautela.
+6. **Dos años, no una serie.** Comparar 2018 con 2024 no informa sobre la trayectoria
+   intermedia, que incluyó la pandemia y dos temporadas de La Niña.
+:::
+
+::: {.card title="Recomendaciones para trabajos futuros"}
+1. **Explotar la serie completa.** Ambas bases cubren 2006-2025. Un modelo de datos de panel
+   con efectos fijos por municipio y por cultivo separaría la variación temporal de la
+   variación estructural, que es la limitación 6 de este trabajo.
+2. **Regresión múltiple.** Incorporar grupo de cultivo, región y área como predictores
+   conjuntos elevaría el poder explicativo muy por encima del
+   `{python} fmt(100*R["R2"],1)` % que alcanza el modelo simple.
+3. **Métodos robustos.** Dada la no normalidad persistente, conviene estimar los intervalos
+   por bootstrap y los coeficientes por regresión cuantílica, que describe el comportamiento
+   de la mediana condicional en lugar de la media.
+4. **Cruce con fuentes externas.** Unir las EVA con datos de precipitación del IDEAM y con el
+   Censo Nacional Agropecuario permitiría pasar de la asociación a hipótesis causales
+   plausibles.
+5. **Análisis por cultivo.** Repetir el contraste pareado dentro de cada cultivo evitaría el
+   efecto de composición que aquí obliga a interpretar con cuidado la comparación entre
+   ciclos.
+6. **Cultivos en cero.**Se recomienda tener en cuenta para otro tipo de estudio los cultivos 
+   en donde no se cosecho nada, o se registra cero y ver como afecta en el rendimiento.
+:::
+
+# Referencias
+
+## Row
+
+::: {.card title="Base de datos utilizada"}
+Ministerio de Agricultura y Desarrollo Rural. (2019). *Evaluaciones Agropecuarias Municipales
+— EVA* [Conjunto de datos]. Datos Abiertos Colombia.
+<https://www.datos.gov.co/Agricultura-y-Desarrollo-Rural/Evaluaciones-Agropecuarias-Municipales-EVA/2pnw-mmge>
+
+Ministerio de Agricultura y Desarrollo Rural. (2025). *Evaluaciones Agropecuarias Municipales
+— EVA. 2019-2025. Base Agrícola* [Conjunto de datos]. Datos Abiertos Colombia.
+<https://www.datos.gov.co/Agricultura-y-Desarrollo-Rural/Evaluaciones-Agropecuarias-Municipales-EVA-2019-20/uejq-wxrr>
+:::
+
+## Row
+
+::: {.card title="Referencias bibliográficas (APA 7)"}
+Arango-Londoño, D., Ramírez-Villegas, J., Barrios-Pérez, C., Bonilla-Findji, O., Jarvis, A., &
+Uribe, J. M. (2020). Closing yield gaps in Colombian direct seeding rice systems: A stochastic
+frontier analysis. *Agronomía Colombiana, 38*(1), 110-119.
+[https://doi.org/10.15446/agron.colomb.v38n1.79470](https://doi.org/10.15446/agron.colomb.v38n1.79470)
+
+Castaño Giraldo, N. E., & Cardona Gómez, M. A. (2013). Factores determinantes en la
+inestabilidad del sector agrícola colombiano. *Revista En-Contexto, 2*(2), 91-107.
+[https://doi.org/10.53995/23463279.137](https://doi.org/10.53995/23463279.137)
+
+Conover, W. J. (1999). *Practical nonparametric statistics* (3.ª ed.). John Wiley & Sons.
+
+Lobell, D. B., Cassman, K. G., & Field, C. B. (2009). Crop yield gaps: Their importance,
+magnitudes, and causes. *Annual Review of Environment and Resources, 34*, 179-204.
+[https://doi.org/10.1146/annurev.environ.041008.093740](https://doi.org/10.1146/annurev.environ.041008.093740)
+
+Mann, H. B., & Whitney, D. R. (1947). On a test of whether one of two random variables is
+stochastically larger than the other. *The Annals of Mathematical Statistics, 18*(1), 50-60.
+[https://doi.org/10.1214/aoms/1177730491](https://doi.org/10.1214/aoms/1177730491)
+
+Ministerio de Agricultura y Desarrollo Rural. (s.f.). *Evaluaciones Agropecuarias Municipales
+- EVA*. Agronet — Observatorio de Información Rural y Agropecuaria.
+[https://agronet.gov.co/plataformas/evaluaciones-agropecuarias-municipales-eva](https://agronet.gov.co/plataformas/evaluaciones-agropecuarias-municipales-eva)
+
+Rasch, D., Kubinger, K. D., & Moder, K. (2011). The two-sample t test: Pre-testing its
+assumptions does not pay off. *Statistical Papers, 52*(1), 219-231.
+[https://doi.org/10.1007/s00362-009-0224-x](https://doi.org/10.1007/s00362-009-0224-x)
+
+Rico, D., Viana Maldonado, K., & Caicedo Solano, N. (2024). Análisis comparativo de los
+factores que afectan la producción agrícola entre Colombia y grandes productores
+sudamericanos. *Encuentro Internacional de Educación en Ingeniería ACOFI*.
+[https://doi.org/10.26507/paper.3955](https://doi.org/10.26507/paper.3955)
+
+Sánchez Pineda, N. E., Duque Arango, J. J., & Hurtado Bedoya, C. A. (2024). Predicción del
+rendimiento del cultivo de fríjol en Colombia: Avances tecnológicos para la agricultura
+sostenible. *Encuentro Internacional de Educación en Ingeniería ACOFI*.
+[https://doi.org/10.26507/paper.3773](https://doi.org/10.26507/paper.3773)
+
+Unidad de Planificación Rural Agropecuaria. (2026). *EVA 2024-2025: Informe final. Actividad
+agropecuaria nacional*. UPRA.
+[https://upra.gov.co/sites/default/files/2026-05/Resultados%20EVA%20Actividad%20agropecuaria%20Nacional%202024-2025.pdf](https://upra.gov.co/sites/default/files/2026-05/Resultados%20EVA%20Actividad%20agropecuaria%20Nacional%202024-2025.pdf)
+
+van Ittersum, M. K., Cassman, K. G., Grassini, P., Wolf, J., Tittonell, P., & Hochman, Z.
+(2013). Yield gap analysis with local to global relevance — A review. *Field Crops Research,
+143*, 4-17. [https://doi.org/10.1016/j.fcr.2012.09.009](https://doi.org/10.1016/j.fcr.2012.09.009)
+
+Wilcoxon, F. (1945). Individual comparisons by ranking methods. *Biometrics Bulletin, 1*(6),
+80-83. [https://doi.org/10.2307/3001968](https://doi.org/10.2307/3001968)
+
+:::
