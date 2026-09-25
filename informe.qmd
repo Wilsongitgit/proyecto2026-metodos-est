@@ -396,6 +396,7 @@ y el año final (2024) solo en el segundo.
 ```{python}
 #| label: estructura
 #| title: "Estructura de los datos: primeros registros"
+#| tbl-cap: "Primeros 8 registros del conjunto EVA 2019-2025 (muestra de 3 municipios × 3 cultivos). Cada fila es una observación: municipio, departamento, región, cultivo, año, período semestral, y variables productivas (área, producción, rendimiento)."
 # Equivalente en Python de head() / glimpse() de R
 rec.head(8)
 ```
@@ -403,6 +404,7 @@ rec.head(8)
 ```{python}
 #| label: info
 #| title: "Estructura de los datos: tipos y no nulos"
+#| tbl-cap: "Esquema del conjunto de datos: 8 variables identificadas (2 categóricas, 6 numéricas), 50.918 observaciones, tipos de datos, y conteos de valores no nulos. Todas las variables tienen cobertura completa excepto rendimiento_ini (5.928 nulos)."
 # Equivalente en Python de str() de R
 rec.info()
 ```
@@ -412,6 +414,7 @@ rec.info()
 ```{python}
 #| label: descripcion-conjunto
 #| title: "Descripción de los conjuntos"
+#| tbl-cap: "Comparación de las dos bases de datos: EVA 2006-2018 (46.557 registros, 10 años, 14 cultivos) vs. EVA 2019-2025 (50.918 registros, 7 años, 14 cultivos). Ambas cubren los mismos 32 municipios del estudio."
 resumen = pd.DataFrame({
     "Conjunto":   ["EVA 2006-2018", "EVA 2019-2025"],
     "Registros":  [len(hist), len(rec)],
@@ -441,6 +444,7 @@ resumen
 ```{python}
 #| label: limpieza
 #| title: "Limpieza: identificación y tratamiento de valores nulos"
+#| tbl-cap: "Proceso de limpieza y eliminación de registros: se retienen 10.815 unidades pareadas (94,4 % de las 11.459 iniciales) tras aplicar cuatro criterios (rendimiento válido en ambos años, área positiva, producción positiva en 2024, región asignada)."
 
 diag = pd.DataFrame({
     "Faltantes": bruta[["rendimiento_ini","rendimiento_fin","delta_rend","region"]].isna().sum(),
@@ -492,6 +496,7 @@ justamente para lo que sirven.
 ```{python}
 #| label: descriptivas
 #| title: "Medidas de tendencia central, dispersión, localización y forma"
+#| tbl-cap: "Estadísticos completos de las tres variables principales: rendimiento en 2018 (media 6,5 t/ha), rendimiento en 2024 (media 8,2 t/ha), y cambio de rendimiento (media +1,7 t/ha). Se reportan tendencia central, dispersión, ubicación y forma (asimetría y curtosis)."
 
 def panel_descriptivo(s, nombre):
     s = s.dropna()
@@ -560,6 +565,7 @@ paramétrico con su versión no paramétrica.
 ```{python}
 #| label: fig-circular
 #| title: "Gráfico circular: composición por región natural"
+#| fig-cap: "Distribución de las unidades de análisis según región natural. La región Andina concentra el 50,2 % de las unidades pareadas, seguida por la región Caribe con 15,4 %."
 def _grafico():
     conteo = df.region.value_counts()
     fig, ax = plt.subplots(figsize=(4.6, 3.6))
@@ -576,6 +582,7 @@ _grafico()
 ```{python}
 #| label: fig-barras
 #| title: "Gráfico de barras: rendimiento mediano por grupo de cultivo"
+#| fig-cap: "Rendimiento mediano (t/ha) por grupo de cultivo en 2024. Los cultivos industriales presentan el rendimiento más alto, mientras que frutas y hortalizas muestran los rendimientos más bajos."
 def _grafico():
     med = (df.groupby("grupo").rendimiento_fin.median().sort_values())
     etiquetas = [g.title() if len(g) < 28 else g.title()[:25] + "..." for g in med.index]
@@ -595,6 +602,7 @@ _grafico()
 ```{python}
 #| label: fig-hist
 #| title: "Histograma con curva de densidad"
+#| fig-cap: "Distribución del rendimiento final (izquierda) y cambio de rendimiento 2018-2024 (derecha). La curva normal teórica (línea roja punteada) se superpone a la densidad empírica para evaluar desviaciones de normalidad."
 def _grafico():
     fig, axes = plt.subplots(1, 2, figsize=(8.4, 3.4))
     for ax, (serie, titulo, color) in zip(axes, [
@@ -617,6 +625,7 @@ _grafico()
 ```{python}
 #| label: fig-box-qq
 #| title: "Diagrama de caja y gráfico de probabilidad normal"
+#| fig-cap: "Diagramas de caja por ciclo de cultivo (izquierda) y gráfico Q-Q para evaluar normalidad (derecha). Los cuantiles de la muestra se desvían de la línea teórica, indicando desviación de la distribución normal."
 def _grafico():
     fig, axes = plt.subplots(1, 2, figsize=(8.4, 3.4))
     datos_box = [df.loc[df.ciclo == c, "rendimiento_fin"].dropna() for c in ["TRANSITORIO", "PERMANENTE"]]
@@ -692,6 +701,7 @@ código que lo genera son el mismo archivo.
 ```{python}
 #| label: fig-pipeline
 #| title: "Pipeline del proyecto"
+#| fig-cap: "Flujo de trabajo del análisis: desde la descarga de dos bases de datos públicas (EVA 2006-2018 y EVA 2019-2025) hasta la armonización, pareamiento, análisis exploratorio, pruebas de normalidad, muestreo estratificado, estimación y contraste de hipótesis, y modelamiento de regresión."
 def _grafico():
     from matplotlib.patches import FancyBboxPatch
     fig, ax = plt.subplots(figsize=(12, 3.6))
@@ -771,6 +781,7 @@ Semilla aleatoria fija: `{python} str(SEMILLA)`.
 ```{python}
 #| label: normalidad
 #| title: "Pruebas de normalidad sobre la población de estudio"
+#| tbl-cap: "Resultados de cuatro pruebas de normalidad: Shapiro-Wilk (n < 5.000), Kolmogorov-Smirnov (n > 50), Anderson-Darling (colas) y Jarque-Bera (sesgo y curtosis). Todos los valores-p son menores a 0,05, rechazando normalidad en todas las variables."
 
 def bateria_normalidad(x, nombre):
     x = np.asarray(pd.Series(x).dropna())
@@ -839,6 +850,7 @@ pruebas.
 ```{python}
 #| label: muestreo
 #| title: "Tamaño de muestra representativo y selección"
+#| tbl-cap: "Comparación de la distribución regional en la población completa (N = 10.815) frente a la muestra aleatoria estratificada (n = 968). La afijación proporcional garantiza que las regiones pequeñas tengan representación mínima (al menos 2 unidades)."
 
 z = stats.norm.ppf(1 - ALFA/2)
 E, p_prev = 0.02, 0.50                     # margen de error 2%, varianza máxima
@@ -931,6 +943,7 @@ la muestra de `{python} fmt(R["n_mu"])` unidades.
 ```{python}
 #| label: ic
 #| title: "Intervalos de confianza para una y dos muestras"
+#| tbl-cap: "Estimación puntual e intervalos de confianza al 95 % para: media del rendimiento en 2024, proporción de unidades que mejoraron, diferencia de medias entre ciclos de cultivo, y razón de varianzas. Los intervalos se construyen con métodos apropiados para cada parámetro."
 
 r_fin = mu.rendimiento_fin.values
 r_ini = mu.rendimiento_ini.values
@@ -1026,6 +1039,7 @@ desplazamiento general de la distribución.
 ```{python}
 #| label: h1muestra
 #| title: "Contrastes para media, proporción y varianza"
+#| tbl-cap: "Pruebas de hipótesis para una muestra: contraste de la media del rendimiento contra la meta política de 10 t/ha, prueba de proporción (mejora vs. no mejora), y contraste de varianza. Se reportan estadísticos, grados de libertad y valores-p bilaterales."
 
 # (1) MEDIA -- H0: mu = 10 t/ha (referencia de política sectorial)
 MU0 = 10.0
@@ -1122,6 +1136,7 @@ muy alta, con una desviación estándar del orden de la propia media.
 ```{python}
 #| label: h2muestras
 #| title: "Medias pareadas, medias independientes, proporciones y razón de varianzas"
+#| tbl-cap: "Resumen de cinco contrastes de hipótesis: media pareada (rendimiento 2018 vs. 2024), media independiente (transitorio vs. permanente), razón de varianzas, diferencia de proporciones (mejora según ciclo), y su alternativa no paramétrica. Se reportan tanto la prueba paramétrica como la no paramétrica cuando aplica."
 
 # (1) PAREADAS: mismo municipio-cultivo en 2018 y 2024
 t_par = stats.ttest_rel(r_fin, r_ini)
@@ -1260,6 +1275,7 @@ de establecimiento.
 ```{python}
 #| label: chi2
 #| title: "Prueba chi-cuadrado de independencia: región × mejora del rendimiento"
+#| tbl-cap: "Tabla de contingencia (frecuencias observadas), frecuencias esperadas bajo independencia, y residuos estandarizados para la asociación entre región natural y mejora del rendimiento 2018-2024. La V de Cramér cuantifica la fuerza de la asociación."
 
 obs = pd.crosstab(mu.region, mu.mejoro.map({0: "No mejoró", 1: "Mejoró"}))
 chi2, p_chi, gl_chi, esp = stats.chi2_contingency(obs)
@@ -1286,6 +1302,8 @@ pd.DataFrame(resid.round(3), index=obs.index, columns=[f"Residuo {c}" for c in o
 ```{python}
 #| label: chi2-complemento
 #| title: "Contraste complementario: región × ciclo del cultivo"
+#| tbl-cap: "Tabla de contingencia de región × ciclo de cultivo. Complementa el análisis de independencia mostrando cómo se distribuyen los cultivos transitorios y permanentes por región, con énfasis en la V de Cramér para la fuerza de asociación."
+
 obs2 = pd.crosstab(mu.region, mu.ciclo)
 chi2b, p_chib, glb, espb = stats.chi2_contingency(obs2)
 Vb = np.sqrt(chi2b / (obs2.values.sum() * (min(obs2.shape) - 1)))
@@ -1342,6 +1360,7 @@ principal: lo que explica la mejora es el tipo de cultivo, no el lugar.
 ```{python}
 #| label: regresion
 #| title: "Regresión lineal simple: producción en función del área cosechada"
+#| tbl-cap: "Modelo OLS de mínimos cuadrados: producción (t) explicada por área cosechada (ha) en 2024. Se reportan coeficientes, errores estándar, valores-t, valores-p, suma de cuadrados y R². El intercepto carece de interpretación (área 0). La elasticidad en escala log-log captura rendimientos decrecientes a escala."
 
 x = mu.cosechada_fin.values
 y = mu.produccion_fin.values
@@ -1384,6 +1403,7 @@ tabla_inf
 ```{python}
 #| label: diagnostico
 #| title: "Verificación de supuestos y modelo alternativo log-log"
+#| tbl-cap: "Diagnósticos de supuestos en regresión lineal: Shapiro-Wilk (normalidad de residuos), Breusch-Pagan (homocedasticidad) y Durbin-Watson (autocorrelación). Se reportan también los resultados del modelo alternativo en escala logarítmica (elasticidad) con su R² comparativo."
 
 res = mod.resid
 sw_res = stats.shapiro(res[:5000])
@@ -1422,6 +1442,7 @@ pd.DataFrame({
 ```{python}
 #| label: fig-regresion
 #| title: "Diagrama de dispersión, recta ajustada e intervalos"
+#| fig-cap: "Relación entre área cosechada y producción: (izquierda) regresión lineal con intervalo de confianza 95 % para la respuesta media e intervalo de predicción 95 %; (centro) transformación logarítmica con elasticidad interpretable; (derecha) análisis de residuos del modelo lineal con histograma y Q-Q plot."
 def _grafico():
     fig, axes = plt.subplots(1, 3, figsize=(11.5, 3.3))
 
