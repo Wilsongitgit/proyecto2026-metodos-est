@@ -1294,8 +1294,12 @@ R.update({"chi2": chi2, "p_chi": p_chi, "gl_chi": gl_chi, "V": V,
           "reg_max": celda_max[0], "col_max": celda_max[1],
           "resid_max": resid_df.loc[celda_max]})
 
+from IPython.display import display as _display, HTML
+_display(HTML("<strong>Frecuencias observadas</strong>"))
 display(obs.assign(Total=obs.sum(axis=1)))
+_display(HTML("<strong>Frecuencias esperadas</strong>"))
 display(esp_df)
+_display(HTML("<strong>Residuos estandarizados</strong>"))
 pd.DataFrame(resid.round(3), index=obs.index, columns=[f"Residuo {c}" for c in obs.columns])
 ```
 
@@ -1308,7 +1312,10 @@ obs2 = pd.crosstab(mu.region, mu.ciclo)
 chi2b, p_chib, glb, espb = stats.chi2_contingency(obs2)
 Vb = np.sqrt(chi2b / (obs2.values.sum() * (min(obs2.shape) - 1)))
 R.update({"chi2b": chi2b, "p_chib": p_chib, "glb": glb, "Vb": Vb, "espb_min": espb.min()})
+from IPython.display import display as _display, HTML
+_display(HTML("<strong>Tabla de contingencia: región × ciclo</strong>"))
 display(obs2)
+_display(HTML("<strong>Resumen del contraste chi-cuadrado</strong>"))
 pd.DataFrame({"Estadístico": ["χ²", "gl", "valor-p", "V de Cramér", "Mínima frecuencia esperada"],
               "Valor": [_f(chi2b), str(glb), _f(p_chib), _f(Vb), _f(espb.min())]}).set_index("Estadístico")
 ```
@@ -1396,7 +1403,10 @@ R.update({"b0": b0, "b1": b1, "r": r_p, "cov_xy": cov_xy, "R2": mod.rsquared, "S
           "SCE": SCE, "Se": Se, "F_reg": mod.fvalue, "p_F_reg": mod.f_pvalue,
           "t_b1": mod.tvalues[1], "p_b1": mod.pvalues[1],
           "ic_b0": (ic_b[0][0], ic_b[0][1]), "ic_b1": (ic_b[1][0], ic_b[1][1])})
+from IPython.display import display as _display, HTML
+_display(HTML("<strong>Parámetros del modelo lineal</strong>"))
 display(tabla_reg)
+_display(HTML("<strong>Contrastes e intervalos de confianza</strong>"))
 tabla_inf
 ```
 
@@ -1429,7 +1439,10 @@ diag_sup = pd.DataFrame({
 R.update({"dw": dw, "bp_p": bp_res[1], "sw_res_p": sw_res.pvalue,
           "b1_l": mod_l.params[1], "R2_l": mod_l.rsquared, "bp_l_p": bp_l[1],
           "ic_b1_l": (ic_l[1][0], ic_l[1][1])})
+from IPython.display import display as _display, HTML
+_display(HTML("<strong>Verificación de supuestos</strong>"))
 display(diag_sup)
+_display(HTML("<strong>Comparación de modelos: lineal vs. log-log</strong>"))
 pd.DataFrame({
     "Modelo": ["Lineal: producción ~ área", "Log-log: ln(producción) ~ ln(área)"],
     "R²": [mod.rsquared, mod_l.rsquared],
