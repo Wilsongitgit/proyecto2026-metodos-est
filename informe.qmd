@@ -1,6 +1,6 @@
 ---
 title: "Rendimiento agrícola municipal 2018–2024"
-author: "INTEGRANTE 1 · INTEGRANTE 2 · INTEGRANTE 3"
+author: "Miller Granda · Wilson Zuñiga"
 date: today
 date-format: "D [de] MMMM [de] YYYY"
 lang: es
@@ -221,14 +221,14 @@ R["n_bruta"] = len(bruta)
 ::: {.card title="Identificación del trabajo"}
 ![](logo_universidad.png){width="180px"}
 
-**Curso:** Métodos Estadísticos — **NRC:** `NRC_DEL_CURSO`
+**Curso:** Métodos Estadísticos — **NRC:** `METODOS ESTADISTICOS-1271-202650`
 
 **Docente:** Jorge Luis Villalba Acevedo
 
 **Título:** Rendimiento agrícola municipal en Colombia: comparación entre 2018 y 2024
 a partir de las Evaluaciones Agropecuarias Municipales
 
-**Integrantes:** INTEGRANTE 1 · INTEGRANTE 2 · INTEGRANTE 3
+**Integrantes:** Miller Granda · Wilson Zuñiga
 
 **Ciudad y fecha:** Cartagena de Indias, `{python} FECHA_ES`
 :::
@@ -277,28 +277,21 @@ volver a renderizar produce exactamente las mismas cifras.
 ## Row
 
 ::: {.card title="Planteamiento del problema"}
-La agricultura colombiana convive con una paradoja conocida: el país dispone de suelos,
-agua y clima favorables, pero su productividad por hectárea queda por debajo de la de otros
-productores sudamericanos comparables (Rico et al., 2024). El indicador que resume esa
-capacidad productiva es el **rendimiento**, definido como toneladas producidas por hectárea
-cosechada. A diferencia del área sembrada, que puede crecer simplemente ocupando más tierra,
-el rendimiento mide qué tan bien se aprovecha la tierra que ya está en producción.
+Colombia cuenta con condiciones de suelo y clima favorables para la agricultura. Sin embargo, su rendimiento promedio por hectárea cosechada se mantiene por debajo del de otros países sudamericanos con dotaciones similares (OCDE, 2022; BID, 2024). Esta brecha de productividad, identificada por el Banco Mundial y el DNP como uno de los principales frenos al crecimiento rural, no es uniforme en el territorio. Varía según el tipo de cultivo, el contexto agroecológico y la capacidad institucional de cada municipio (DNP, 2020).
 
-Entre 2018 y 2024 el campo colombiano atravesó la pandemia, dos temporadas del fenómeno de
-La Niña, el paro nacional de 2021 y un encarecimiento fuerte de los fertilizantes importados.
-No es evidente, entonces, si el rendimiento municipal se recuperó, se estancó o retrocedió en
-ese periodo, ni si el comportamiento fue homogéneo entre regiones y entre tipos de cultivo.
+La medida que resume esa capacidad productiva es el rendimiento, definido como la producción en toneladas dividida entre el área efectivamente cosechada. A diferencia del área sembrada, que puede aumentar simplemente expandiendo la frontera agrícola sin mejora técnica, el rendimiento muestra qué tan eficientemente se transforma la tierra en producción. Por eso está más directamente ligado a la competitividad del productor y a la seguridad alimentaria territorial.
 
-Las **Evaluaciones Agropecuarias Municipales (EVA)** son el único registro con cobertura
-nacional que permite responder esa pregunta a escala municipal. Se construyen anualmente con
-las secretarías de agricultura departamentales y son coordinadas por la UPRA
-(UPRA, 2026). El problema que aborda este trabajo es la ausencia de una comparación
-estadística formal —con supuestos verificados y cuantificación de la incertidumbre— entre el
-rendimiento de 2018 y el de 2024 para las mismas unidades municipio-cultivo.
+El periodo 2018–2024 es especialmente relevante para analizar este fenómeno. Durante esos años, el sistema agrícola colombiano enfrentó una secuencia inusual de choques externos. La pandemia de COVID-19 interrumpió cadenas de suministro, redujo el crédito y limitó la movilidad de la mano de obra estacional. El paro nacional de 2021 bloqueó corredores logísticos clave para el transporte de insumos y cosechas. Dos episodios de La Niña (2020–2021 y 2022–2023) alteraron los patrones de lluvia y causaron pérdidas por anegamiento. Además, el encarecimiento global de los fertilizantes en 2022, acelerado por el conflicto en Europa del Este, llevó los costos de producción a niveles sin precedentes en el país.
 
-**Delimitación.** El estudio cubre el territorio continental e insular colombiano, la base
-agrícola de las EVA (no pecuaria ni forestal) y las unidades municipio-cultivo con registro
-válido en ambos años.
+Al final de este ciclo, no está claro si el rendimiento municipal volvió a los niveles de 2018, se estancó o disminuyó, ni si ese comportamiento fue uniforme entre regiones y grupos de cultivo.
+
+Las Evaluaciones Agropecuarias Municipales (EVA), coordinadas por la UPRA junto con las secretarías departamentales de agricultura, son el único registro de cobertura nacional que permite responder esta pregunta a escala municipio y cultivo. No obstante, los informes publicados por la UPRA presentan variaciones porcentuales agregadas que no permiten determinar si las diferencias observadas son estadísticamente significativas, ni identificar qué cultivos o regiones concentran los cambios más marcados. Hasta ahora, no existe en la literatura un análisis inferencial formal, con verificación de supuestos, cuantificación de incertidumbre y control de comparaciones múltiples, que compare el rendimiento de 2018 y 2024 para las mismas unidades municipio y cultivo.
+
+El problema que aborda este trabajo es precisamente esa ausencia. Falta una comparación inferencial rigurosa del rendimiento agrícola municipal entre 2018 y 2024 que permita establecer la dirección, magnitud y heterogeneidad del cambio, y que distinga el efecto real del ruido de medición inherente a un sistema de información construido con declaraciones de las secretarías departamentales.
+
+### Delimitación
+
+El estudio cubre la base agrícola de las EVA, excluye registros pecuarios y forestales, y se limita a las unidades municipio y cultivo con observación válida de rendimiento en ambos años de referencia. El análisis contempla la heterogeneidad entre grupos de cultivo (transitorios y permanentes) y entre regiones naturales del país.
 :::
 
 ## Row
@@ -1691,4 +1684,66 @@ van Ittersum, M. K., Cassman, K. G., Grassini, P., Wolf, J., Tittonell, P., & Ho
 
 Wilcoxon, F. (1945). Individual comparisons by ranking methods. *Biometrics Bulletin, 1*(6),
 80-83. <https://doi.org/10.2307/3001968>
+
+@book{OCDE2022,
+  author    = {{Organización para la Cooperación y el Desarrollo Económicos}},
+  title     = {Revisión de la política rural de {Colombia} 2022},
+  year      = {2022},
+  publisher = {OECD Publishing},
+  address   = {París},
+  url       = {https://doi.org/10.1787/4d2bbaf8-es}
+}
+
+@misc{OCDE2024,
+  author    = {{Organización para la Cooperación y el Desarrollo Económicos}},
+  title     = {Estudios económicos de la {OCDE}: {Colombia} 2024},
+  year      = {2024},
+  publisher = {OECD Publishing},
+  address   = {París},
+  url       = {https://www.oecd.org/es/publications/2024/09/oecd-economic-surveys-colombia-2024_7b382d76/full-report/component-6.html}
+}
+
+@techreport{DNP2020,
+  author      = {{Departamento Nacional de Planeación}},
+  title       = {Productividad de la tierra y rendimiento del suelo},
+  year        = {2020},
+  institution = {DNP -- Misión de Crecimiento Verde},
+  address     = {Bogotá},
+  url         = {https://www.dnp.gov.co/LaEntidad_/misiones/mision-crecimiento-verde/Documents/ejes-tematicos/Suelo/Informe_1_Productividad_tierra_Ajustado_VF.pdf}
+}
+
+@misc{UPRA2024,
+  author      = {{Unidad de Planificación Rural Agropecuaria}},
+  title       = {Evaluaciones agropecuarias municipales ({EVA}) 2024},
+  year        = {2024},
+  publisher   = {UPRA -- Ministerio de Agricultura y Desarrollo Rural},
+  address     = {Bogotá},
+  url         = {https://upra.gov.co/es-co/Paginas/eva_2024.aspx}
+}
+
+@article{Redalyc2021,
+  author  = {VERIFICAR},
+  title   = {Panorama de la competitividad y políticas públicas en el sector agropecuario frente a la crisis del {COVID}-19 en {Colombia}},
+  year    = {2021},
+  url     = {https://www.redalyc.org/journal/2913/291377795004/html/},
+  note    = {Verificar nombre de la revista y autores antes de citar}
+}
+
+@misc{SAC2021,
+  author    = {{Sociedad de Agricultores de Colombia}},
+  title     = {Paro: El agro, el gran damnificado},
+  year      = {2021},
+  publisher = {SAC},
+  url       = {https://sac.org.co/paro-el-agro-el-gran-damnificado/}
+}
+
+@misc{Bloomberg2022,
+  author    = {{Bloomberg Línea}},
+  title     = {Fertilizantes en {Colombia}: ¿Un problema de escasez, de precio o de ambas?},
+  year      = {2022},
+  month     = apr,
+  publisher = {Bloomberg Línea},
+  url       = {https://www.bloomberglinea.com/2022/04/25/fertilizantes-en-colombia-un-problema-de-escasez-de-precio-o-de-ambas/}
+}
+
 :::
