@@ -579,6 +579,8 @@ def _grafico():
 _grafico()
 ```
 
+**Conclusión:** La región Andina concentra el 58,8 % de las unidades pareadas, lo que refleja la importancia agrícola de esta zona. Esta concentración implica que los resultados generales están fuertemente influenciados por el comportamiento del rendimiento andino.
+
 ```{python}
 #| label: fig-barras
 #| title: "Gráfico de barras: rendimiento mediano por grupo de cultivo"
@@ -596,6 +598,8 @@ def _grafico():
 
 _grafico()
 ```
+
+**Conclusión:** Los cultivos industriales y permanentes (café, cacao) alcanzan 14–16 t/ha, mientras que hortalizas (cebolla, tomate) apenas 3–5 t/ha. Esta variabilidad sustancial entre grupos refleja diferencias tecnológicas, ciclos productivos y disponibilidad de agua, no solo mejora en prácticas.
 
 ## Row {height="50%"}
 
@@ -621,6 +625,8 @@ def _grafico():
 
 _grafico()
 ```
+
+**Conclusión:** Ambas distribuciones muestran colas pesadas y asimetría positiva (sesgo a la derecha), rechazando la normalidad. El cambio de rendimiento es particularmente asimétr ico con un pico en torno a +1 t/ha, indicando que la mayoría de unidades mejoraron poco o mostraron volatilidad alta.
 
 ```{python}
 #| label: fig-box-qq
@@ -648,6 +654,8 @@ def _grafico():
 
 _grafico()
 ```
+
+**Conclusión:** Los diagramas de caja revelan que cultivos permanentes (café, cacao) tienen medianas más altas que transitorios, pero mayor dispersión. El Q-Q plot muestra desviación clara de la línea de normalidad en ambas colas, confirmando que las pruebas no paramétricas (Wilcoxon, Mann-Whitney) son más confiables que las paramétricas.
 
 # Métodos
 
@@ -1492,6 +1500,8 @@ def _grafico():
 
 _grafico()
 ```
+
+**Conclusión:** El modelo lineal muestra heterocedasticidad clara (varianza en abanico), lo que invalida los intervalos de confianza estándar. El modelo log-log mejora sustancialmente la homocedasticidad (R² = 0,624 vs. 0,551) e indica elasticidad 0,88: duplicar el área aumenta la producción apenas 88 %, sugiriendo rendimientos decrecientes a escala.
 
 ::: {.card title="Interpretación del modelo"}
 **Parte descriptiva.** La covarianza es positiva
