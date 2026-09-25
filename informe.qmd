@@ -1640,110 +1640,49 @@ Ministerio de Agricultura y Desarrollo Rural. (2025). *Evaluaciones Agropecuaria
 Arango-Londoño, D., Ramírez-Villegas, J., Barrios-Pérez, C., Bonilla-Findji, O., Jarvis, A., &
 Uribe, J. M. (2020). Closing yield gaps in Colombian direct seeding rice systems: A stochastic
 frontier analysis. *Agronomía Colombiana, 38*(1), 110-119.
-<https://doi.org/10.15446/agron.colomb.v38n1.79470>
+[https://doi.org/10.15446/agron.colomb.v38n1.79470](https://doi.org/10.15446/agron.colomb.v38n1.79470)
 
 Castaño Giraldo, N. E., & Cardona Gómez, M. A. (2013). Factores determinantes en la
 inestabilidad del sector agrícola colombiano. *Revista En-Contexto, 2*(2), 91-107.
-<https://doi.org/10.53995/23463279.137>
+[https://doi.org/10.53995/23463279.137](https://doi.org/10.53995/23463279.137)
 
 Conover, W. J. (1999). *Practical nonparametric statistics* (3.ª ed.). John Wiley & Sons.
 
 Lobell, D. B., Cassman, K. G., & Field, C. B. (2009). Crop yield gaps: Their importance,
 magnitudes, and causes. *Annual Review of Environment and Resources, 34*, 179-204.
-<https://doi.org/10.1146/annurev.environ.041008.093740>
+[https://doi.org/10.1146/annurev.environ.041008.093740](https://doi.org/10.1146/annurev.environ.041008.093740)
 
 Mann, H. B., & Whitney, D. R. (1947). On a test of whether one of two random variables is
 stochastically larger than the other. *The Annals of Mathematical Statistics, 18*(1), 50-60.
-<https://doi.org/10.1214/aoms/1177730491>
+[https://doi.org/10.1214/aoms/1177730491](https://doi.org/10.1214/aoms/1177730491)
 
 Ministerio de Agricultura y Desarrollo Rural. (s.f.). *Evaluaciones Agropecuarias Municipales
 - EVA*. Agronet — Observatorio de Información Rural y Agropecuaria.
-<https://agronet.gov.co/plataformas/evaluaciones-agropecuarias-municipales-eva>
+[https://agronet.gov.co/plataformas/evaluaciones-agropecuarias-municipales-eva](https://agronet.gov.co/plataformas/evaluaciones-agropecuarias-municipales-eva)
 
 Rasch, D., Kubinger, K. D., & Moder, K. (2011). The two-sample t test: Pre-testing its
 assumptions does not pay off. *Statistical Papers, 52*(1), 219-231.
-<https://doi.org/10.1007/s00362-009-0224-x>
+[https://doi.org/10.1007/s00362-009-0224-x](https://doi.org/10.1007/s00362-009-0224-x)
 
 Rico, D., Viana Maldonado, K., & Caicedo Solano, N. (2024). Análisis comparativo de los
 factores que afectan la producción agrícola entre Colombia y grandes productores
 sudamericanos. *Encuentro Internacional de Educación en Ingeniería ACOFI*.
-<https://doi.org/10.26507/paper.3955>
+[https://doi.org/10.26507/paper.3955](https://doi.org/10.26507/paper.3955)
 
 Sánchez Pineda, N. E., Duque Arango, J. J., & Hurtado Bedoya, C. A. (2024). Predicción del
 rendimiento del cultivo de fríjol en Colombia: Avances tecnológicos para la agricultura
 sostenible. *Encuentro Internacional de Educación en Ingeniería ACOFI*.
-<https://doi.org/10.26507/paper.3773>
+[https://doi.org/10.26507/paper.3773](https://doi.org/10.26507/paper.3773)
 
 Unidad de Planificación Rural Agropecuaria. (2026). *EVA 2024-2025: Informe final. Actividad
 agropecuaria nacional*. UPRA.
-<https://upra.gov.co/sites/default/files/2026-05/Resultados%20EVA%20Actividad%20agropecuaria%20Nacional%202024-2025.pdf>
+[https://upra.gov.co/sites/default/files/2026-05/Resultados%20EVA%20Actividad%20agropecuaria%20Nacional%202024-2025.pdf](https://upra.gov.co/sites/default/files/2026-05/Resultados%20EVA%20Actividad%20agropecuaria%20Nacional%202024-2025.pdf)
 
 van Ittersum, M. K., Cassman, K. G., Grassini, P., Wolf, J., Tittonell, P., & Hochman, Z.
 (2013). Yield gap analysis with local to global relevance — A review. *Field Crops Research,
-143*, 4-17. <https://doi.org/10.1016/j.fcr.2012.09.009>
+143*, 4-17. [https://doi.org/10.1016/j.fcr.2012.09.009](https://doi.org/10.1016/j.fcr.2012.09.009)
 
 Wilcoxon, F. (1945). Individual comparisons by ranking methods. *Biometrics Bulletin, 1*(6),
-80-83. <https://doi.org/10.2307/3001968>
-
-@book{OCDE2022,
-  author    = {{Organización para la Cooperación y el Desarrollo Económicos}},
-  title     = {Revisión de la política rural de {Colombia} 2022},
-  year      = {2022},
-  publisher = {OECD Publishing},
-  address   = {París},
-  url       = {https://doi.org/10.1787/4d2bbaf8-es}
-}
-
-@misc{OCDE2024,
-  author    = {{Organización para la Cooperación y el Desarrollo Económicos}},
-  title     = {Estudios económicos de la {OCDE}: {Colombia} 2024},
-  year      = {2024},
-  publisher = {OECD Publishing},
-  address   = {París},
-  url       = {https://www.oecd.org/es/publications/2024/09/oecd-economic-surveys-colombia-2024_7b382d76/full-report/component-6.html}
-}
-
-@techreport{DNP2020,
-  author      = {{Departamento Nacional de Planeación}},
-  title       = {Productividad de la tierra y rendimiento del suelo},
-  year        = {2020},
-  institution = {DNP -- Misión de Crecimiento Verde},
-  address     = {Bogotá},
-  url         = {https://www.dnp.gov.co/LaEntidad_/misiones/mision-crecimiento-verde/Documents/ejes-tematicos/Suelo/Informe_1_Productividad_tierra_Ajustado_VF.pdf}
-}
-
-@misc{UPRA2024,
-  author      = {{Unidad de Planificación Rural Agropecuaria}},
-  title       = {Evaluaciones agropecuarias municipales ({EVA}) 2024},
-  year        = {2024},
-  publisher   = {UPRA -- Ministerio de Agricultura y Desarrollo Rural},
-  address     = {Bogotá},
-  url         = {https://upra.gov.co/es-co/Paginas/eva_2024.aspx}
-}
-
-@article{Redalyc2021,
-  author  = {VERIFICAR},
-  title   = {Panorama de la competitividad y políticas públicas en el sector agropecuario frente a la crisis del {COVID}-19 en {Colombia}},
-  year    = {2021},
-  url     = {https://www.redalyc.org/journal/2913/291377795004/html/},
-  note    = {Verificar nombre de la revista y autores antes de citar}
-}
-
-@misc{SAC2021,
-  author    = {{Sociedad de Agricultores de Colombia}},
-  title     = {Paro: El agro, el gran damnificado},
-  year      = {2021},
-  publisher = {SAC},
-  url       = {https://sac.org.co/paro-el-agro-el-gran-damnificado/}
-}
-
-@misc{Bloomberg2022,
-  author    = {{Bloomberg Línea}},
-  title     = {Fertilizantes en {Colombia}: ¿Un problema de escasez, de precio o de ambas?},
-  year      = {2022},
-  month     = apr,
-  publisher = {Bloomberg Línea},
-  url       = {https://www.bloomberglinea.com/2022/04/25/fertilizantes-en-colombia-un-problema-de-escasez-de-precio-o-de-ambas/}
-}
+80-83. [https://doi.org/10.2307/3001968](https://doi.org/10.2307/3001968)
 
 :::
