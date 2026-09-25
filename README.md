@@ -98,12 +98,14 @@ Cada página del dashboard corresponde a una sección de la rúbrica:
 
 ## 6. Diseño estadístico, en corto
 
-- **Unidad de análisis:** municipio × cultivo.
+- **Unidad de análisis:** municipio × cultivo (pareado).
 - **Pareamiento:** la misma unidad medida en 2018 (base 2006-2018) y en 2024 (base 2019-2025).
-- **Población de estudio:** 10.629 unidades con registro válido en ambos años.
-- **Muestra:** 1.960 unidades, estratificada por región, con margen de error del 2 % y
+- **Población de estudio:** 10.815 unidades con registro válido en ambos años.
+- **Muestra:** 968 unidades, estratificada por región natural, con margen de error del 2 % y
   confianza del 95 %.
 - **Semilla:** 2026. Renderizar dos veces da exactamente las mismas cifras.
+- **Hallazgo principal:** El rendimiento agrícola mejoró en promedio 1,7 t/ha (2018–2024);
+  la mejora está asociada al tipo de cultivo, no a la región.
 
 ---
 
