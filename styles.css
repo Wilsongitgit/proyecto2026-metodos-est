@@ -1,0 +1,14 @@
+/* Ajusta el tamaño del logo y su alineación con el texto */
+.navbar-logo {
+  height: 55px;              /* agranda el logo (antes 24px) */
+  width: auto;                /* mantiene la proporción, evita que se deforme */
+  margin-right: 10px;         /* separación respecto al título */
+}
+
+/* Ajusta la caja donde vive el logo para que quede compacta en la esquina */
+.navbar-brand-container {
+  display: flex;
+  align-items: center;        /* centra verticalmente el logo con el texto */
+  padding: 8px 12px;          /* reduce/ajusta el espacio alrededor */
+  gap: 8px;                   /* espacio entre logo y texto */
+}
