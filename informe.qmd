@@ -197,7 +197,7 @@ hist, rec = cargar()
 ini = consolidar(hist, ANIO_INI)
 fin = consolidar(rec, ANIO_FIN)
 
-bruta = ini.merge(fin, on=["cod_mun","cultivo"], suffixes=("_ini","_fin"))
+bruta = ini.merge(fin, on=["cod_mun","cultivo","ciclo"], suffixes=("_ini","_fin"))
 bruta = bruta.rename(columns={"municipio_fin":"municipio","departamento_fin":"departamento",
                               "grupo_fin":"grupo","subgrupo_fin":"subgrupo","ciclo_fin":"ciclo"})
 bruta["region"] = bruta["departamento"].map(REGION)
@@ -659,6 +659,16 @@ semestrales (A y B) y el rendimiento se recalcula como producción total sobre �
 total, en lugar de promediar los rendimientos semestrales, que daría un promedio no ponderado
 y sesgado hacia los semestres de menor área.
 
+**Nota sobre la clave de emparejamiento.** El ciclo de cultivo (transitorio / permanente /
+anual) se excluye de la clave de emparejamiento para preservar las 1.062 unidades cuya
+clasificación cambió entre las dos bases. En el conjunto 2006-2018 existe la categoría
+"anual", que desaparece en el conjunto 2019-2025: las 1.062 unidades afectadas pasaron a
+clasificarse como "transitorio" (1.059 casos) o "permanente" (3 casos) en 2024. Incluir el
+ciclo en la clave reduciría la muestra de 10.815 a 9.742 unidades pareadas, sin ventaja
+analítica: el ciclo no identifica la unidad productiva, la identifica la combinación
+código DANE × cultivo. La clasificación del año final es la que se conserva en la variable
+`ciclo` del conjunto pareado.
+
 **Población objetivo:** todas las unidades municipio-cultivo con registro válido en 2018 y en
 2024, es decir `{python} fmt(R["N"])` unidades.
 :::
@@ -731,9 +741,13 @@ _grafico()
 
 ::: {.card title="Marco de decisión estadística"}
 **Nivel de significancia.** Se fija $\alpha$ = `{python} str(ALFA)` para todas las pruebas del
-informe. No se ajusta por multiplicidad porque cada contraste responde a un objetivo
-específico declarado de antemano, no a una exploración de todas las combinaciones posibles;
-esta limitación se retoma en las conclusiones.
+informe. No se ajusta por multiplicidad en el sentido de Bonferroni o Holm porque cada contraste
+responde a un objetivo específico declarado de antemano y no a una exploración ciega de
+combinaciones posibles. Sin embargo, con más de diez pruebas ejecutadas al mismo nivel
+$\alpha = 0{,}05$, la probabilidad de al menos un falso positivo por azar supera el 40 %.
+Esta limitación se retoma y cuantifica en las conclusiones, y es la razón por la que la
+decisión sustantiva se apoya en la coherencia entre prueba paramétrica y no paramétrica,
+no en el valor-p aislado de ninguna prueba.
 
 **Criterio de decisión.** Se compara el valor-p con $\alpha$: si $p < \alpha$ se rechaza
 $H_0$; en caso contrario no se rechaza. Se reporta además el estadístico de prueba y, cuando
@@ -893,9 +907,21 @@ de la población, como muestra la tabla comparativa.
 **Muestra efectiva:** `{python} fmt(R["n_mu"])` unidades. Difiere en unos pocos casos del
 $n$ calculado por el redondeo de las cuotas dentro de cada estrato.
 
-**Nota.** Todas las pruebas de hipótesis que siguen se ejecutan sobre esta muestra, tal como
-exige el diseño. Las descriptivas de la página anterior se calcularon sobre la población
-completa, que es donde tienen sentido como caracterización.
+**Por qué es válido inferir sobre las `{python} fmt(R["N"])` unidades a partir de la muestra.**
+Las EVA no son un censo de la actividad agrícola colombiana: son estimaciones de consenso
+elaboradas por las secretarías departamentales de agricultura a partir de declaraciones de
+productores, visitas de campo y registros administrativos (MADR-Agronet, s.f.). El
+rendimiento registrado para cada municipio-cultivo lleva implícito un error de medición no
+cuantificable, que hace que las `{python} fmt(R["N"])` unidades deban tratarse como una
+realización ruidosa del verdadero estado productivo del territorio, no como el universo
+exacto. Bajo esa interpretación —que la fuente primaria no es perfecta y el margen de
+error relevante es el de la estimación estadística, no el de la enumeración completa— la
+extracción de una muestra aleatoria estratificada y la inferencia sobre ella son el
+procedimiento correcto: permiten cuantificar la incertidumbre y construir intervalos de
+confianza interpretables. Las descriptivas de la página anterior se calcularon sobre las
+`{python} fmt(R["N"])` unidades disponibles, que es donde tienen sentido como
+caracterización del registro. Todas las pruebas de hipótesis que siguen se ejecutan sobre
+la muestra de `{python} fmt(R["n_mu"])` unidades.
 :::
 
 # Intervalos de confianza
@@ -1588,8 +1614,14 @@ escala.
    puede variar entre departamentos y entre años, y ese error de medición no es cuantificable
    con los datos disponibles.
 2. **Cambio de estructura entre bases.** El conjunto 2006-2018 incluye la categoría de ciclo
-   "anual", que desaparece en el conjunto 2019-2025. Las unidades afectadas se conservaron
-   usando la clasificación del año final, lo que introduce una reclasificación no verificable.
+   "anual", que desaparece en el conjunto 2019-2025. Se identificaron 1.062 unidades con
+   ciclo "anual" en 2018 que pasaron a clasificarse como "transitorio" (1.059 casos) o
+   "permanente" (3 casos) en 2024. Estas unidades se conservaron usando la clasificación
+   del año final, decisión que maximiza la cobertura del análisis pareado (se retienen
+   10.815 unidades en lugar de 9.742), aunque introduce una reclasificación no verificable
+   en el campo. Los cultivos predominantes en este grupo son yuca y ñame, que
+   agronómicamente se comportan como transitorios plurianuales: su cambio de categoría es
+   plausible, pero no confirmable con los datos disponibles.
 3. **Diseño observacional.** Todas las asociaciones encontradas son correlacionales. Nada en
    este diseño permite atribuir la mejora del rendimiento a una causa concreta.
 4. **Supervivencia de las unidades.** Solo entran las unidades presentes en ambos años. Las
